@@ -41,50 +41,19 @@ local Window = Fluent:CreateWindow({
 local Tabs = {
     Ingame = Window:AddTab({ Title = "Ingame", Icon = "gamepad-2" }),
     Macro = Window:AddTab({ Title = "Macro", Icon = "play" }),
-    Summon = Window:AddTab({ Title = "Summon", Icon = "sparkles" }),
-    Raid = Window:AddTab({ Title = "Raid", Icon = "swords" }),
-    Automation = Window:AddTab({ Title = "Automation", Icon = "cpu" }),
-    Webhook = Window:AddTab({ Title = "Webhook", Icon = "bell" }),
-    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" }),
-    Party = Window:AddTab({ Title = "Party", Icon = "users" }),
-    Tower = Window:AddTab({ Title = "Tower", Icon = "castle" }),
-    AutoPlace = Window:AddTab({ Title = "Auto Place", Icon = "map-pin" })
+    AutoPlace = Window:AddTab({ Title = "Auto Place", Icon = "map-pin" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
 -- [ แท็บ Ingame ]
 Tabs.Ingame:AddSection("Main Options")
-local SpeedMode = Tabs.Ingame:AddDropdown("SpeedMode", { Title = "Speed Mode", Values = {"1x", "2x", "3x"}, Multi = false, Default = 1 })
+local SpeedMode = Tabs.Ingame:AddDropdown("SpeedMode", { Title = "Speed Mode", Values = {"1x", "2x", "3x", "4x"}, Multi = false, Default = 2 })
 local EnableAutoGameSpeed = Tabs.Ingame:AddToggle("EnableAutoGameSpeed", { Title = "Enable Auto GameSpeed", Default = false })
-local EndMatchMode = Tabs.Ingame:AddDropdown("EndMatchMode", { Title = "End Match Mode", Values = {"Auto Next", "Auto Replay", "Return to Lobby"}, Multi = false, Default = 1 })
-
-Tabs.Ingame:AddSection("Auto Leave Match")
-local EnablePullBackToLobby = Tabs.Ingame:AddToggle("EnablePullBackToLobby", { Title = "Enable Pull Back to Lobby", Default = false })
-local AutoLeaveWave = Tabs.Ingame:AddInput("AutoLeaveWave", { Title = "Auto Leave Game at Wave", Default = "50", Numeric = true, Finished = false })
-
-Tabs.Ingame:AddSection("Match Progression")
-local AutoSkipWave = Tabs.Ingame:AddToggle("AutoSkipWave", { Title = "Auto Skip Wave (Vote Skip)", Default = false })
-local EnableEndMatchAutomation = Tabs.Ingame:AddToggle("EnableEndMatchAutomation", { Title = "Enable End Match Automation", Default = false })
+local EndMatchMode = Tabs.Ingame:AddDropdown("EndMatchMode", { Title = "End Match Mode", Values = {"Auto Next", "Return to Lobby", "Stay in Game"}, Multi = false, Default = 1 })
 
 Tabs.Ingame:AddSection("Vote Mode")
 local AutoVoteMode = Tabs.Ingame:AddDropdown("AutoVoteMode", { Title = "Auto Vote Mode", Values = {"Normal", "Hard", "Extreme"}, Multi = false, Default = 1 })
 local EnableAutoVote = Tabs.Ingame:AddToggle("EnableAutoVote", { Title = "Enable Auto Vote", Default = false })
-
--- [ แท็บ Macro ] (ย่อไว้เป็น UI พื้นฐาน)
-Tabs.Macro:AddSection("Status")
-local MacroStatus = Tabs.Macro:AddParagraph({ Title = "ℹ️ Current Status", Content = "File: None\nStatus: Idle ⚪\nActions: 0\nIn-Game Time: --" })
-Tabs.Macro:AddSection("File Management")
-local NewMacroName = Tabs.Macro:AddInput("NewMacroName", { Title = "New Macro Name", Placeholder = "Enter Text...", Finished = false })
-Tabs.Macro:AddButton({ Title = "➕ Create & Select File", Callback = function() end })
-local SelectMacroFile = Tabs.Macro:AddDropdown("SelectMacroFile", { Title = "📂 Select / Load Macro File", Values = {"None"}, Multi = false, Default = 1 })
-Tabs.Macro:AddButton({ Title = "🔄 Refresh List", Callback = function() end })
-Tabs.Macro:AddButton({ Title = "🗑️ Delete Selected File", Callback = function() end })
-Tabs.Macro:AddSection("Controls")
-local PlaybackMode = Tabs.Macro:AddDropdown("PlaybackMode", { Title = "⚙️ Playback Mode", Values = {"Money + Time", "Time Only", "Action Based"}, Multi = false, Default = 1 })
-Tabs.Macro:AddButton({ Title = "🔴 Start Recording", Callback = function() end })
-Tabs.Macro:AddButton({ Title = "⏹️ Stop Recording & Auto-Save", Callback = function() end })
-local AutoPlayMacro = Tabs.Macro:AddToggle("AutoPlayMacro", { Title = "🟢 Auto Play Selected Macro (Looping)", Default = false })
-Tabs.Macro:AddButton({ Title = "▶️ Play Macro (Run Once)", Callback = function() end })
-Tabs.Macro:AddButton({ Title = "⏹️ Stop Macro", Callback = function() end })
 
 -- [ แท็บ AutoPlace ]
 Tabs.AutoPlace:AddSection("Status")
@@ -117,10 +86,7 @@ local function HandleAutoVote()
         local modeFolder = voteFrame:FindFirstChild(AutoVoteMode.Value)
         if modeFolder then
             local voteButton = modeFolder:FindFirstChild("TextButton")
-            if voteButton then
-                ClickUIButton(voteButton)
-                task.wait(1) 
-            end
+            if voteButton then ClickUIButton(voteButton) end
         end
     end
 end
@@ -138,10 +104,8 @@ local function HandleAutoSpeed()
     if not inputRemote then return end
     if currentSpeed < targetSpeed then
         inputRemote:FireServer("SpeedChange", true)
-        task.wait(0.5)
     elseif currentSpeed > targetSpeed then
         inputRemote:FireServer("SpeedChange", false)
-        task.wait(0.5)
     end
 end
 
@@ -208,7 +172,7 @@ local function GetPlacedUnitCount(unitName)
     return count
 end
 
--- ฟังก์ชันหาแผ่นพื้นสีเขียว/เนิน แบบใหม่ที่อิงตามระยะทางเป้าหมาย
+-- 🎯 อัปเดตใหม่: ฟังก์ชันรองรับทั้ง Part และ Model 
 local function GetValidPlacementCFrame(isHill, targetNode, offsetIndex)
     local folderName = isHill and "Hill" or "Base"
     local placeableFolder = workspace:FindFirstChild("Placeable") and workspace.Placeable:FindFirstChild(folderName)
@@ -217,16 +181,28 @@ local function GetValidPlacementCFrame(isHill, targetNode, offsetIndex)
     local zones = placeableFolder:GetChildren()
     if #zones == 0 then return nil end
 
-    -- เรียงแผ่นที่อยู่ใกล้โหนดเป้าหมายมากที่สุดขึ้นก่อน
+    -- ใช้ GetPivot().Position เพื่อดึงพิกัดให้ชัวร์ 100% ไม่ว่าจะเป็นกล่อง Model หรือ Part
+    local targetPos = targetNode:GetPivot().Position
+
     table.sort(zones, function(a, b)
-        local distA = (a.Position - targetNode.Position).Magnitude
-        local distB = (b.Position - targetNode.Position).Magnitude
+        local distA = (a:GetPivot().Position - targetPos).Magnitude
+        local distB = (b:GetPivot().Position - targetPos).Magnitude
         return distA < distB
     end)
 
     local selectedZone = zones[(offsetIndex % #zones) + 1]
-    local placeY = selectedZone.Position.Y + (selectedZone.Size.Y / 2) + 2
-    return CFrame.new(selectedZone.Position.X, placeY, selectedZone.Position.Z)
+    local zonePos = selectedZone:GetPivot().Position
+    
+    -- หาความสูง Y อย่างปลอดภัย
+    local zoneSizeY = 2 
+    if selectedZone:IsA("Model") then
+        zoneSizeY = selectedZone:GetExtentsSize().Y
+    elseif selectedZone:IsA("BasePart") then
+        zoneSizeY = selectedZone.Size.Y
+    end
+
+    local placeY = zonePos.Y + (zoneSizeY / 2) + 2
+    return CFrame.new(zonePos.X, placeY, zonePos.Z)
 end
 
 local function SmartAutoPlace()
@@ -256,7 +232,10 @@ local function SmartAutoPlace()
             
             if placeCFrame then
                 local args = { "Summon", { Rotation = 0, cframe = placeCFrame, Unit = unit.Name } }
+                
+                -- สั่งวาง!
                 pcall(function() inputRemote:FireServer(unpack(args)) end)
+                print("[✅ AutoPlace] สั่งวางตัวละคร:", unit.Name, "| ใช้เงิน:", unit.Cost)
                 
                 myMoney = myMoney - unit.Cost 
                 task.wait(0.3) 
@@ -322,7 +301,7 @@ SaveManager:BuildConfigSection(Tabs.Settings)
 Window:SelectTab(1)
 
 Fluent:Notify({
-    Title = "Hub Loaded!",
-    Content = "สคริปต์โหลดสมบูรณ์! ระบบจำกัดพื้นที่สีเขียวทำงานแล้ว",
+    Title = "Fixed Bug!",
+    Content = "อัปเดตรองรับพื้นที่แบบ Model แล้ว ลองเปิด F9 ดู Log ได้เลย",
     Duration = 5
 })
