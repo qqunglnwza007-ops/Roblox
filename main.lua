@@ -1,5 +1,5 @@
 -- ============================================================================
--- 👑 ULTIMATE MACRO SYSTEM (V5.1) : MASTER EDITION
+-- 👑 ULTIMATE MACRO SYSTEM (V6) : MASTER EDITION
 -- Architecture: Safe Action Queue + Smart Playback + QoL Automation
 -- Updates: User's Custom AutoSpeed, Silent Auto-Save, Clean UI (No Config Tab)
 -- ============================================================================
@@ -191,6 +191,38 @@ local function FindActionButton(actionsFrame, names)
     return nil
 end
 
+-- ==========================================
+-- [เพิ่มใหม่] ฟังก์ชัน Base64 สำหรับ Export/Import
+-- ==========================================
+local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+local function Base64Encode(data)
+    return ((data:gsub('.', function(x) 
+        local r,b='',x:byte()
+        for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
+        return r;
+    end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+        if (#x < 6) then return '' end
+        local c=0
+        for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
+        return b:sub(c+1,c+1)
+    end)..({ '', '==', '=' })[#data%3+1])
+end
+
+local function Base64Decode(data)
+    data = string.gsub(data, '[^'..b..'=]', '')
+    return (data:gsub('.', function(x)
+        if (x == '=') then return '' end
+        local r,f='',(b:find(x)-1)
+        for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
+        return r;
+    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+        if (#x ~= 8) then return '' end
+        local c=0
+        for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
+        return string.char(c)
+    end))
+end
+
 -- ============================================================================
 -- 4. BUILDING THE UI (V5.1 Clean Architecture)
 -- ============================================================================
@@ -202,8 +234,8 @@ local Window = Fluent:CreateWindow({
 })
 
 local Tabs = {
-    Macro = Window:AddTab({Title = "Macro Engine", Icon = "play"}),
     Ingame = Window:AddTab({Title = "Ingame", Icon = "gamepad-2"}),
+    Macro = Window:AddTab({Title = "Macro Engine", Icon = "play"}),
     Settings = Window:AddTab({Title = "Settings", Icon = "settings"})
 }
 Window:SelectTab(1)
@@ -244,6 +276,49 @@ Tabs.Macro:AddButton({ Title = "🗑️ Delete Selected File", Callback = functi
         MacroDropdown:SetValues(MacroFS.GetMacroFiles())
         MacroDropdown:SetValue("None")
         UpdateUIStatus(nil, "None", nil, nil, 0)
+    end
+end})
+Tabs.Macro:AddButton({ Title = "📤 Export Selected Macro (Copy to Clipboard)", Callback = function()
+    local selectedFile = MacroDropdown.Value
+    if selectedFile == "None" then return Fluent:Notify({ Title = "Error", Content = "เลือกไฟล์ก่อน Export!", Duration = 3 }) end
+    
+    local path = MacroFS.FolderName .. "/" .. selectedFile .. MacroFS.Extension
+    if isfile(path) then
+        local rawData = readfile(path)
+        local encodedData = "TDMACRO_" .. Base64Encode(rawData)
+        if setclipboard then
+            setclipboard(encodedData)
+            Fluent:Notify({ Title = "Exported!", Content = "ก๊อปปี้โค้ดมาโครแล้ว เอาไปแจกได้เลย!", Duration = 5 })
+        else
+            Fluent:Notify({ Title = "Error", Content = "ตัวรันนี้ไม่รองรับระบบก๊อปปี้ (setclipboard)", Duration = 3 })
+        end
+    end
+end})
+
+local ImportCodeInput = Tabs.Macro:AddInput("ImportCodeInput", { Title = "📥 Paste Macro Code", Placeholder = "วางโค้ด TDMACRO_ ที่นี่...", Finished = false })
+local ImportNameInput = Tabs.Macro:AddInput("ImportNameInput", { Title = "✏️ New Macro Name", Placeholder = "ตั้งชื่อไฟล์ใหม่...", Finished = false })
+
+Tabs.Macro:AddButton({ Title = "💾 Import & Save Macro", Callback = function()
+    local code = ImportCodeInput.Value
+    local newName = ImportNameInput.Value
+    
+    if code == "" or newName == "" then return Fluent:Notify({ Title = "Error", Content = "กรอกโค้ดและชื่อไฟล์ให้ครบ!", Duration = 3 }) end
+    if not string.find(code, "^TDMACRO_") then return Fluent:Notify({ Title = "Error", Content = "โค้ดมาโครไม่ถูกต้อง!", Duration = 3 }) end
+    
+    local cleanCode = string.gsub(code, "TDMACRO_", "")
+    local success, decodedData = pcall(function() return Base64Decode(cleanCode) end)
+    
+    if success and decodedData and string.find(decodedData, "Actions") then
+        local path = MacroFS.FolderName .. "/" .. newName .. MacroFS.Extension
+        if writefile then
+            writefile(path, decodedData)
+            Fluent:Notify({ Title = "Import Success!", Content = "นำเข้าไฟล์ " .. newName .. " สำเร็จ!", Duration = 4 })
+            MacroDropdown:SetValues(MacroFS.GetMacroFiles())
+            MacroDropdown:SetValue(newName)
+            UpdateUIStatus(nil, newName, nil, nil, 0)
+        end
+    else
+        Fluent:Notify({ Title = "Error", Content = "ไฟล์เสียหรือถอดรหัสไม่ได้!", Duration = 3 })
     end
 end})
 
@@ -343,7 +418,6 @@ local function PlayMacro(loopPlayback)
     local token = Playback.Token
 
     task.spawn(function()
-        repeat
             local playbackStartTime = tick()
             for index, action in ipairs(actions) do
                 if Playback.Token ~= token or not Playback.Running then break end
@@ -366,7 +440,6 @@ local function PlayMacro(loopPlayback)
                 task.wait(0.1)
             end
             if loopPlayback and Playback.Token == token then task.wait(2) end
-        until not loopPlayback or Playback.Token ~= token
 
         if Playback.Token == token then Playback.Running = false UpdateUIStatus("Idle ⚪") end
     end)
@@ -544,16 +617,31 @@ end)
 -- ============================================================================
 -- 9. THE SAFE HOOK (ACTION QUEUE)
 -- ============================================================================
+
 task.spawn(function()
     while task.wait(0.05) do
         if #ActionQueue > 0 then
             for _, action in ipairs(ActionQueue) do
+                local currentCash = GetCurrentCash() -- เช็คเงินในกระเป๋าปัจจุบัน
+                
                 if action.Type == "Summon" then
-                    action.Data.Cost = GetUnitCostFromName(action.Data.Unit)
-                    RecordAction("Summon", action.Data)
+                    local cost = GetUnitCostFromName(action.Data.Unit)
+                    if currentCash >= cost then -- ตรวจสอบก่อนจดจำ
+                        action.Data.Cost = cost
+                        RecordAction("Summon", action.Data)
+                    else
+                        Fluent:Notify({ Title = "Macro Skipped", Content = "เงินไม่พอวางตัวละคร! (ไม่บันทึกลงคิว)", Duration = 2 })
+                    end
+                    
                 elseif action.Type == "Upgrade" then
                     local targetUnit = action.Data.UnitInstance
-                    RecordAction("Upgrade", { UnitName = targetUnit.Name, Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z}, Cost = GetUpgradeCostFromUI() })
+                    local cost = GetUpgradeCostFromUI()
+                    if currentCash >= cost and cost > 0 then -- ตรวจสอบก่อนจดจำ
+                        RecordAction("Upgrade", { UnitName = targetUnit.Name, Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z}, Cost = cost })
+                    else
+                        Fluent:Notify({ Title = "Macro Skipped", Content = "เงินไม่พออัพเกรด หรือตันแล้ว!", Duration = 2 })
+                    end
+                    
                 elseif action.Type == "Sell" then
                     local targetUnit = action.Data.UnitInstance
                     RecordAction("Sell", { UnitName = targetUnit.Name, Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z}, Cost = 0 })
@@ -586,7 +674,7 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 end)
 
 -- ============================================================================
--- 10. SILENT AUTO-SAVE SYSTEM (No Config Tab Needed)
+-- 10. SILENT AUTO-SAVE SYSTEM & AUTO PLAY TRIGGER
 -- ============================================================================
 SaveManager:SetLibrary(Fluent)
 SaveManager:IgnoreThemeSettings()
@@ -600,6 +688,29 @@ end)
 
 Window:SelectTab(1)
 Fluent:Notify({ Title = "V5.1 Master Loaded", Content = "Ultimate Hub V5.1 พร้อมใช้งาน!", Duration = 5 })
+
+-- ==========================================
+-- [ชิ้นส่วน 4.2] เช็คสถานะปุ่ม Auto Play ถ้าเปิดค้างไว้ ให้เริ่มลุยเลย!
+-- ==========================================
+task.spawn(function()
+    local timeout = 10 -- รอสูงสุด 10 วินาที ถ้าเกินนี้แปลว่าไม่ได้เปิด Auto ไว้หรือเซฟมีปัญหา
+    local elapsed = 0
+    local checkInterval = 0.5
+
+    while elapsed < timeout do
+        -- เช็คว่า UI ถูกสร้างและ SaveManager ดึงค่ากลับมาคืนแล้ว
+        if AutoPlayMacro and AutoPlayMacro.Value == true then
+            if MacroState.CurrentFile ~= "None" and MacroState.CurrentFile ~= "" then
+                Fluent:Notify({ Title = "Auto Play Triggered", Content = "โหลดเซฟเสร็จสิ้น! เริ่มลุยมาโคร...", Duration = 3 })
+                PlayMacro(false) -- สั่งรัน 1 รอบ (เดี๋ยวระบบลูปมันจะจัดการต่อเองถ้าตั้งไว้)
+                break -- หลุดออกจากลูปทันทีที่ทำงานสำเร็จ
+            end
+        end
+        
+        task.wait(checkInterval)
+        elapsed = elapsed + checkInterval
+    end
+end)
 
 -- 2. สร้างลูปซุ่มเซฟ ทำงานเบื้องหลังทุกๆ 3 วินาที
 task.spawn(function()
