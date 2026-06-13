@@ -318,6 +318,9 @@ local function GetUpgradeCostFromUI()
     return 0
 end
 
+-- ------------------------------------------
+-- 🪝 The Hook: แทรกแซง Namecall (แก้ไข Thread Security)
+-- ------------------------------------------
 local oldNamecall
 oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
@@ -330,17 +333,19 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
             if commandType == "Summon" then
                 local summonData = args[2]
                 
-                -- [FIXED 3] เพิ่มการตรวจสอบ Type ของข้อมูลเพื่อความปลอดภัย
                 if type(summonData) == "table" and summonData.cframe then
                     local cf = summonData.cframe
                     local cframeTable = {cf:components()} 
 
-                    RecordAction("Summon", {
-                        Unit = summonData.Unit,
-                        Rotation = summonData.Rotation,
-                        CFrameData = cframeTable, 
-                        Cost = GetUnitCostFromName(summonData.Unit)
-                    })
+                    -- 🛠️ [FIXED] โยนเข้า task.spawn เพื่อหลีกเลี่ยง Thread Capability Error
+                    task.spawn(function()
+                        RecordAction("Summon", {
+                            Unit = summonData.Unit,
+                            Rotation = summonData.Rotation,
+                            CFrameData = cframeTable, 
+                            Cost = GetUnitCostFromName(summonData.Unit)
+                        })
+                    end)
                 end
             end
             
@@ -351,31 +356,37 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
                  local targetUnit = args[2] 
                  
                  if targetUnit and typeof(targetUnit) == "Instance" then
-                     local currentLevel = 0
-                     if targetUnit:FindFirstChild("UpgradeTag") then
-                         currentLevel = targetUnit.UpgradeTag.Value
-                     end
-                     
-                     RecordAction("Upgrade", {
-                         UnitName = targetUnit.Name,
-                         Level = currentLevel,
-                         Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z},
-                         Cost = GetUpgradeCostFromUI()
-                     })
+                     -- 🛠️ [FIXED] โยนเข้า task.spawn
+                     task.spawn(function()
+                         local currentLevel = 0
+                         if targetUnit:FindFirstChild("UpgradeTag") then
+                             currentLevel = targetUnit.UpgradeTag.Value
+                         end
+                         
+                         RecordAction("Upgrade", {
+                             UnitName = targetUnit.Name,
+                             Level = currentLevel,
+                             Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z},
+                             Cost = GetUpgradeCostFromUI()
+                         })
+                     end)
                  end
                  
              elseif commandType == "Sell" then
                  local targetUnit = args[2]
                  if targetUnit and typeof(targetUnit) == "Instance" then
-                     RecordAction("Sell", {
-                         UnitName = targetUnit.Name,
-                         Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z},
-                         Cost = 0 
-                     })
+                     -- 🛠️ [FIXED] โยนเข้า task.spawn
+                     task.spawn(function()
+                         RecordAction("Sell", {
+                             UnitName = targetUnit.Name,
+                             Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z},
+                             Cost = 0 
+                         })
+                     end)
                  end
              end
         end
-    end -- [FIXED 2] เพิ่ม end ปิดบล็อกตรวจสอบสเตตัสให้ถูกต้อง
+    end
 
     return oldNamecall(self, ...)
 end)
