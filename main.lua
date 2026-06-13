@@ -233,7 +233,7 @@ Tabs.Macro:AddButton({ Title = "⏹️ Stop Macro", Callback = function()
 end})
 
 -- ==============================================================================
--- 🕵️ PHASE 2: METATABLE HOOKING (ระบบดักจับคำสั่ง)
+-- 🕵️ PHASE 2: METATABLE HOOKING (ระบบดักจับคำสั่ง - FIXED V3)
 -- ==============================================================================
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -318,9 +318,51 @@ local function GetUpgradeCostFromUI()
     return 0
 end
 
--- ------------------------------------------
--- 🪝 The Hook: แทรกแซง Namecall (แก้ไข Thread Security)
--- ------------------------------------------
+-- ==========================================
+-- 🛡️ ระบบคิวต้านบัค Thread Security (Action Queue)
+-- ==========================================
+local ActionQueue = {}
+
+-- วงจรนี้จะทำงานในสเลดของตัวรัน (Executor Thread) อย่างปลอดภัย
+task.spawn(function()
+    while task.wait(0.05) do -- เช็คคิวทุกๆ เสี้ยววินาที
+        if #ActionQueue > 0 then
+            for _, action in ipairs(ActionQueue) do
+                -- พอแยกสเลดออกมาแล้ว เราสามารถดึงค่าจาก UI และอัปเดต Fluent UI ได้โดยไม่โดนบล็อก!
+                if action.Type == "Summon" then
+                    action.Data.Cost = GetUnitCostFromName(action.Data.Unit)
+                    RecordAction("Summon", action.Data)
+                    
+                elseif action.Type == "Upgrade" then
+                    local targetUnit = action.Data.UnitInstance
+                    local currentLevel = 0
+                    if targetUnit:FindFirstChild("UpgradeTag") then
+                        currentLevel = targetUnit.UpgradeTag.Value
+                    end
+                    RecordAction("Upgrade", {
+                        UnitName = targetUnit.Name,
+                        Level = currentLevel,
+                        Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z},
+                        Cost = GetUpgradeCostFromUI()
+                    })
+                    
+                elseif action.Type == "Sell" then
+                    local targetUnit = action.Data.UnitInstance
+                    RecordAction("Sell", {
+                        UnitName = targetUnit.Name,
+                        Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z},
+                        Cost = 0 
+                    })
+                end
+            end
+            ActionQueue = {} -- เคลียร์คิวทิ้งหลังทำเสร็จ
+        end
+    end
+end)
+
+-- ==========================================
+-- 🪝 The Hook: ดักจับแบบเพียวๆ (ไม่แตะ UI เด็ดขาด)
+-- ==========================================
 local oldNamecall
 oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
@@ -328,61 +370,44 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 
     if MacroState.Status == "Recording 🔴" and not checkcaller() then
         
+        -- ดักจับ Summon
         if method == "FireServer" and self == InputRemote then
             local commandType = args[1]
             if commandType == "Summon" then
                 local summonData = args[2]
                 
-                if type(summonData) == "table" and summonData.cframe then
+                -- เช็คชัวร์ว่าเป็นตารางและเป็น CFrame จริงๆ
+                if type(summonData) == "table" and typeof(summonData.cframe) == "CFrame" then
                     local cf = summonData.cframe
-                    local cframeTable = {cf:components()} 
+                    -- เลิกใช้ cf:components() ป้องกันตัวรันเอ๋อ ดึง X Y Z มาตรงๆ แทน
+                    local cframeTable = {cf.X, cf.Y, cf.Z} 
 
-                    -- 🛠️ [FIXED] โยนเข้า task.spawn เพื่อหลีกเลี่ยง Thread Capability Error
-                    task.spawn(function()
-                        RecordAction("Summon", {
-                            Unit = summonData.Unit,
+                    -- 📌 โยนข้อมูลดิบลงคิวเท่านั้น! ห้ามอัปเดต UI ในนี้!
+                    table.insert(ActionQueue, {
+                        Type = "Summon",
+                        Data = {
+                            Unit = tostring(summonData.Unit),
                             Rotation = summonData.Rotation,
-                            CFrameData = cframeTable, 
-                            Cost = GetUnitCostFromName(summonData.Unit)
-                        })
-                    end)
+                            CFrameData = cframeTable
+                        }
+                    })
                 end
             end
             
+        -- ดักจับ Upgrade & Sell
         elseif method == "InvokeServer" and self == ServerRemote then
              local commandType = args[1]
-             
              if commandType == "Upgrade" then
                  local targetUnit = args[2] 
-                 
-                 if targetUnit and typeof(targetUnit) == "Instance" then
-                     -- 🛠️ [FIXED] โยนเข้า task.spawn
-                     task.spawn(function()
-                         local currentLevel = 0
-                         if targetUnit:FindFirstChild("UpgradeTag") then
-                             currentLevel = targetUnit.UpgradeTag.Value
-                         end
-                         
-                         RecordAction("Upgrade", {
-                             UnitName = targetUnit.Name,
-                             Level = currentLevel,
-                             Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z},
-                             Cost = GetUpgradeCostFromUI()
-                         })
-                     end)
+                 if typeof(targetUnit) == "Instance" then
+                     -- โยนลงคิว
+                     table.insert(ActionQueue, { Type = "Upgrade", Data = { UnitInstance = targetUnit } })
                  end
-                 
              elseif commandType == "Sell" then
                  local targetUnit = args[2]
-                 if targetUnit and typeof(targetUnit) == "Instance" then
-                     -- 🛠️ [FIXED] โยนเข้า task.spawn
-                     task.spawn(function()
-                         RecordAction("Sell", {
-                             UnitName = targetUnit.Name,
-                             Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z},
-                             Cost = 0 
-                         })
-                     end)
+                 if typeof(targetUnit) == "Instance" then
+                     -- โยนลงคิว
+                     table.insert(ActionQueue, { Type = "Sell", Data = { UnitInstance = targetUnit } })
                  end
              end
         end
