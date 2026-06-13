@@ -1,6 +1,7 @@
 -- ============================================================================
--- 👑 ULTIMATE MACRO SYSTEM (V5) : MASTER EDITION
+-- 👑 ULTIMATE MACRO SYSTEM (V5.1) : MASTER EDITION
 -- Architecture: Safe Action Queue + Smart Playback + QoL Automation
+-- Updates: User's Custom AutoSpeed, Silent Auto-Save, Clean UI (No Config Tab)
 -- ============================================================================
 
 local HttpService = game:GetService("HttpService")
@@ -17,7 +18,6 @@ local ServerRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Ser
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
-local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 -- ============================================================================
 -- 1. CORE STATE & VARIABLES
@@ -42,9 +42,8 @@ local Playback = {
 
 local AutomationState = {
     LastClick = {},
-    LastSpeedCheck = 0,
     LastUpgradeSweep = 0,
-    AssumedSpeed = 1
+    LastSpeedCheck = 0
 }
 
 -- ============================================================================
@@ -69,7 +68,7 @@ end
 function MacroFS.CreateEmptyMacro(name)
     if name == "" or name == "None" then return false end
     local path = MacroFS.FolderName .. "/" .. name .. MacroFS.Extension
-    local emptyData = HttpService:JSONEncode({ Info = "Ultimate Macro V5", Actions = {} })
+    local emptyData = HttpService:JSONEncode({ Info = "Ultimate Macro V5.1", Actions = {} })
     if writefile then writefile(path, emptyData) return true end
     return false
 end
@@ -193,12 +192,12 @@ local function FindActionButton(actionsFrame, names)
 end
 
 -- ============================================================================
--- 4. BUILDING THE UI (Perfect Architecture V5)
+-- 4. BUILDING THE UI (V5.1 Clean Architecture)
 -- ============================================================================
 local Window = Fluent:CreateWindow({
     Title = "AutoPlay Hub Pro",
-    SubTitle = "Ultimate Macro V5",
-    TabWidth = 160, Size = UDim2.fromOffset(620, 540),
+    SubTitle = "Ultimate Macro V5.1",
+    TabWidth = 160, Size = UDim2.fromOffset(620, 500),
     Acrylic = true, Theme = "Darker", MinimizeKey = Enum.KeyCode.LeftControl
 })
 
@@ -276,7 +275,6 @@ local AntiAFK = Tabs.Settings:AddToggle("AntiAFK", { Title = "🏃‍♂️ Anti
 
 Tabs.Settings:AddSection("🚑 Safety & Recovery")
 local AutoRejoin = Tabs.Settings:AddToggle("AutoRejoin", { Title = "🔄 Auto Rejoin on Kick/Disconnect", Default = false })
-local AutoExecute = Tabs.Settings:AddToggle("AutoExecute", { Title = "🚀 Auto Execute", Description = "รันสคริปต์อัตโนมัติเมื่อเปลี่ยนเซิร์ฟเวอร์", Default = false })
 
 -- ============================================================================
 -- 5. PLAYBACK ENGINE (Logic & Replay)
@@ -387,7 +385,7 @@ end})
 Tabs.Macro:AddButton({ Title = "⏹️ Stop Recording & Auto-Save", Callback = function()
     if MacroState.Status == "Recording 🔴" then
         UpdateUIStatus("Idle ⚪")
-        local dataToSave = { Info = "Ultimate Macro System V5", TotalActions = #RecordedActions, Actions = RecordedActions }
+        local dataToSave = { Info = "Ultimate Macro System V5.1", TotalActions = #RecordedActions, Actions = RecordedActions }
         local path = MacroFS.FolderName .. "/" .. MacroState.CurrentFile .. MacroFS.Extension
         if writefile then
             pcall(function() writefile(path, HttpService:JSONEncode(dataToSave)) end)
@@ -417,7 +415,7 @@ Tabs.Macro:AddButton({ Title = "⏹️ Stop Macro", Callback = function()
 end})
 
 -- ============================================================================
--- 7. V5 INGAME AUTOMATION FEATURES
+-- 7. V5.1 INGAME AUTOMATION FEATURES (With User's AutoSpeed)
 -- ============================================================================
 local function RunAutoVote()
     if not EnableAutoVote.Value then return end
@@ -460,17 +458,30 @@ local function RunEndMatchAutomation()
     ClickWithCooldown("MissionEnd_" .. tostring(mode), button, 0.45)
 end
 
-local function RunAutoGameSpeed()
+-- 🛠️ โค้ด AutoSpeed ฉบับของบอสเป๊ะๆ
+local function HandleAutoSpeed()
     if not EnableAutoGameSpeed.Value then return end
-    local desired = tonumber(tostring(SpeedMode.Value or ""):match("([%d%.]+)x"))
-    if not desired then return end
-
-    -- เกมนี้ใช้ FireServer ทื่อๆ เลยส่งไปอัพสปีดตรงๆ ตามที่เลือก
-    local now = os.clock()
-    if now - AutomationState.LastSpeedCheck > 3 then -- รันเช็คส่งซ้ำทุกๆ 3 วิเผื่อหลุด
-        AutomationState.LastSpeedCheck = now
-        pcall(function() InputRemote:FireServer("SpeedChange", true) end) 
-    end
+    local hud = LocalPlayer.PlayerGui:FindFirstChild("HUD")
+    if not hud then return end
+    local speedLabel = hud:FindFirstChild("FastForward") and hud.FastForward:FindFirstChild("TextLabel")
+    if not speedLabel then return end
+    
+    local currentSpeed = tonumber(string.match(speedLabel.Text, "%d+")) or 1
+    local targetSpeed = tonumber(string.match(SpeedMode.Value, "%d+")) or 1
+    local inputRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Input")
+    
+    if not inputRemote then return end
+    
+    -- ใส่ task.spawn ครอบไว้ เพื่อไม่ให้ task.wait(0.5) ไปหน่วงการข้ามเวฟ
+    task.spawn(function()
+        if currentSpeed < targetSpeed then
+            inputRemote:FireServer("SpeedChange", true)
+            task.wait(0.5)
+        elseif currentSpeed > targetSpeed then
+            inputRemote:FireServer("SpeedChange", false)
+            task.wait(0.5)
+        end
+    end)
 end
 
 local function RunAutoUpgradeAll()
@@ -491,10 +502,16 @@ task.spawn(function()
         pcall(RunAutoVote)
         pcall(RunAutoSkipWave)
         pcall(RunEndMatchAutomation)
-        pcall(RunAutoGameSpeed)
         
         local now = os.clock()
-        if now - AutomationState.LastUpgradeSweep >= 1.5 then -- วนอัพเกรดทุก 1.5 วินาทีถ้าว่าง
+        -- เช็คความเร็วเกมทุกๆ 2 วินาที
+        if now - AutomationState.LastSpeedCheck > 2 then
+            AutomationState.LastSpeedCheck = now
+            pcall(HandleAutoSpeed)
+        end
+        
+        -- วนอัพเกรดทุก 1.5 วินาทีถ้าว่าง
+        if now - AutomationState.LastUpgradeSweep >= 1.5 then 
             AutomationState.LastUpgradeSweep = now
             pcall(RunAutoUpgradeAll)
         end
@@ -513,7 +530,7 @@ LocalPlayer.Idled:Connect(function()
     end
 end)
 
--- Auto Rejoin ของจริง ดักหน้าต่าง Error แล้วกดปุ่ม Leave / ใช้วิชา Teleport กลับมาเซิร์ฟเดิม
+-- Auto Rejoin
 task.spawn(function()
     local promptOverlay = CoreGui:WaitForChild("RobloxPromptGui"):WaitForChild("promptOverlay")
     promptOverlay.ChildAdded:Connect(function(child)
@@ -569,32 +586,26 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 end)
 
 -- ============================================================================
--- 10. FLUENT SAVE / INTERFACE MANAGERS & CROSS-SERVER EXECUTE
+-- 10. SILENT AUTO-SAVE SYSTEM (No Config Tab Needed)
 -- ============================================================================
 SaveManager:SetLibrary(Fluent)
-InterfaceManager:SetLibrary(Fluent)
-
 SaveManager:IgnoreThemeSettings()
--- แก้บัคตรงนี้! ให้ Ignore แค่ชื่อไฟล์ ไม่ไปยุ่งกับปุ่มเปิด/ปิดมาโคร
 SaveManager:SetIgnoreIndexes({ "NewMacroName" }) 
-
-InterfaceManager:SetFolder("AutoPlayHubPro")
 SaveManager:SetFolder("AutoPlayHubPro/UltimateMacroV5")
-InterfaceManager:BuildInterfaceSection(Tabs.Settings)
-SaveManager:BuildConfigSection(Tabs.Settings)
 
--- โหลดการตั้งค่าเก่าขึ้นมาทันที!
-SaveManager:LoadAutoloadConfig()
+-- 1. ตอนโหลดสคริปต์ ให้แอบโหลดการตั้งค่าเดิมขึ้นมาก่อน
+pcall(function()
+    SaveManager:Load("SilentAutoSaveConfig")
+end)
+
 Window:SelectTab(1)
+Fluent:Notify({ Title = "V5.1 Master Loaded", Content = "Ultimate Hub V5.1 พร้อมใช้งาน!", Duration = 5 })
 
-Fluent:Notify({ Title = "V5 Master Loaded", Content = "ยินดีต้อนรับสู่ Ultimate Hub V5!", Duration = 5 })
-
--- Auto Execute Cross-Server 
-if AutoExecute.Value then
-    pcall(function()
-        local queue_on_teleport = queue_on_teleport or syn.queue_on_teleport
-        if queue_on_teleport then
-            queue_on_teleport('loadstring(game:HttpGet("https://raw.githubusercontent.com/qqunglnwza007-ops/Roblox/refs/heads/main/main.lua"))()')
-        end
-    end)
-end
+-- 2. สร้างลูปซุ่มเซฟ ทำงานเบื้องหลังทุกๆ 3 วินาที
+task.spawn(function()
+    while task.wait(3) do
+        pcall(function()
+            SaveManager:Save("SilentAutoSaveConfig")
+        end)
+    end
+end)
