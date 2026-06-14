@@ -1,5 +1,5 @@
 -- ============================================================================
--- 👑 ULTIMATE MACRO SYSTEM (V6) : MASTER EDITION
+-- 👑 ULTIMATE MACRO SYSTEM (V6.1) : MASTER EDITION
 -- Architecture: Safe Action Queue + Smart Playback + QoL Automation
 -- Updates: User's Custom AutoSpeed, Silent Auto-Save, Clean UI (No Config Tab)
 -- ============================================================================
@@ -467,13 +467,23 @@ Tabs.Macro:AddButton({ Title = "⏹️ Stop Recording & Auto-Save", Callback = f
     end
 end})
 
+-- สร้างตัวแปรล็อกระบบไว้ก่อน ป้องกัน UI ตีกันตอนโหลดเซฟ
+local IsBooting = true 
+
 local AutoPlayMacro = Tabs.Macro:AddToggle("AutoPlayMacro", { Title = "🟢 Auto Play Selected Macro (Looping)", Default = false })
 AutoPlayMacro:OnChanged(function(value)
+    if IsBooting then return end -- ถ้ากำลัง Boot เซฟอยู่ ห้ามเสร่อทำงาน! ปล่อยผ่านไปเลย
+    
     if value then
-        if MacroState.CurrentFile == "None" then AutoPlayMacro:SetValue(false) return end
+        if MacroState.CurrentFile == "None" then 
+            AutoPlayMacro:SetValue(false) 
+            return 
+        end
         UpdateUIStatus("Playing (Loop) 🟢")
         PlayMacro(true)
-    else StopMacroPlayback() end
+    else 
+        StopMacroPlayback() 
+    end
 end)
 
 Tabs.Macro:AddButton({ Title = "▶️ Play Macro (Run Once)", Callback = function()
@@ -690,25 +700,36 @@ Window:SelectTab(1)
 Fluent:Notify({ Title = "V5.1 Master Loaded", Content = "Ultimate Hub V5.1 พร้อมใช้งาน!", Duration = 5 })
 
 -- ==========================================
--- [ชิ้นส่วน 4.2] เช็คสถานะปุ่ม Auto Play ถ้าเปิดค้างไว้ ให้เริ่มลุยเลย!
+-- [ชิ้นส่วน 4.2 Master] Smart Trigger เช็คสถานะไฟล์และปลดล็อกระบบ
 -- ==========================================
 task.spawn(function()
-    local timeout = 10 -- รอสูงสุด 10 วินาที ถ้าเกินนี้แปลว่าไม่ได้เปิด Auto ไว้หรือเซฟมีปัญหา
+    local timeout = 10 -- ให้เวลารอไฟล์สูงสุด 10 วินาที
     local elapsed = 0
     local checkInterval = 0.5
 
+    -- ลูปเช็คว่า SaveManager โหลดชื่อไฟล์มาทับคำว่า "None" หรือยัง
     while elapsed < timeout do
-        -- เช็คว่า UI ถูกสร้างและ SaveManager ดึงค่ากลับมาคืนแล้ว
-        if AutoPlayMacro and AutoPlayMacro.Value == true then
-            if MacroState.CurrentFile ~= "None" and MacroState.CurrentFile ~= "" then
-                Fluent:Notify({ Title = "Auto Play Triggered", Content = "โหลดเซฟเสร็จสิ้น! เริ่มลุยมาโคร...", Duration = 3 })
-                PlayMacro(false) -- สั่งรัน 1 รอบ (เดี๋ยวระบบลูปมันจะจัดการต่อเองถ้าตั้งไว้)
-                break -- หลุดออกจากลูปทันทีที่ทำงานสำเร็จ
-            end
+        if MacroState.CurrentFile ~= "None" and MacroState.CurrentFile ~= "" then
+            break -- ไฟล์มาแล้ว หลุดลูปได้เลย ไม่ต้องรอครบ 10 วิ
         end
-        
         task.wait(checkInterval)
         elapsed = elapsed + checkInterval
+    end
+    
+    -- โหลดเสร็จแล้ว ปลดล็อกระบบ Boot ให้ปุ่มกลับมาทำงานได้ปกติ
+    IsBooting = false 
+
+    -- ค่อยมาเช็คว่าปุ่ม Auto Play ถูกเปิดค้างไว้จากเซฟไหม
+    if AutoPlayMacro and AutoPlayMacro.Value == true then
+        if MacroState.CurrentFile ~= "None" then
+            Fluent:Notify({ Title = "Auto Play Triggered", Content = "โหลดเซฟเสร็จสิ้น! เริ่มลุยมาโคร...", Duration = 3 })
+            UpdateUIStatus("Playing (Loop) 🟢")
+            PlayMacro(true) -- สั่งลุยแบบลูปต่อเนื่อง
+        else
+            -- ถ้าหมดเวลา 10 วิแล้วไฟล์ยังพังอยู่ ค่อยสับสวิตช์ปิดตัวเอง
+            AutoPlayMacro:SetValue(false) 
+            Fluent:Notify({ Title = "Auto Play Failed", Content = "ไม่พบไฟล์มาโคร ยกเลิกออโต้รัน!", Duration = 3 })
+        end
     end
 end)
 
