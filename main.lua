@@ -1,17 +1,8 @@
 -- ============================================================================
--- 👑 ULTIMATE MACRO SYSTEM (V7.0) : MASTER EDITION
+-- 👑 ULTIMATE MACRO SYSTEM (V6.1) : MASTER EDITION
 -- Architecture: Safe Action Queue + Smart Playback + QoL Automation
--- Updates: Auto-Execute, Smart Env Check, Mobile Icon, Real-Time Event Save
+-- Updates: User's Custom AutoSpeed, Silent Auto-Save, Clean UI (No Config Tab)
 -- ============================================================================
-
--- 🚀 1. AUTO-EXECUTE ON TELEPORT (ฝังตัวข้ามแมพตั้งแต่เริ่ม)
-if queue_on_teleport then
-    local autoExecCode = [[
-        task.wait(2)
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/qqunglnwza007-ops/Roblox/refs/heads/main/main.lua"))()
-    ]]
-    queue_on_teleport(autoExecCode)
-end
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -27,10 +18,9 @@ local ServerRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Ser
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
-local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 -- ============================================================================
--- 2. CORE STATE & SMART ENVIRONMENT DETECTOR
+-- 1. CORE STATE & VARIABLES
 -- ============================================================================
 local MacroState = {
     CurrentFile = "None",
@@ -43,55 +33,43 @@ local MacroState = {
 local RecordedActions = {}
 local RecordingStartTime = 0
 local ActionQueue = {}
-local IsBooting = true -- [บล็อกระบบ] คุมการทำงานตอนรันสคริปต์ครั้งแรก
-local IsInGame = false -- [ระบบแยก Lobby]
 
-local Playback = { Running = false, Token = 0, PositionTolerance = 4 }
-local AutomationState = { LastClick = {}, LastUpgradeSweep = 0, LastSpeedCheck = 0 }
+local Playback = {
+    Running = false,
+    Token = 0,
+    PositionTolerance = 4
+}
 
--- 🧭 กางโดเมนเช็คสภาพแวดล้อม (รอเช็ค UI Wave สูงสุด 15 วิ)
-task.spawn(function()
-    if not game:IsLoaded() then game.Loaded:Wait() end
-    local maxWaitTime, elapsed = 15, 0
-    while elapsed < maxWaitTime do
-        local hud = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("HUD")
-        if hud and hud:FindFirstChild("Wave") then
-            IsInGame = true
-            print("[System] บอสอยู่ในแมพต่อสู้! ปลดล็อกระบบ Macro...")
-            break
-        end
-        task.wait(1)
-        elapsed = elapsed + 1
-    end
-    if not IsInGame then
-        print("[System] บอสอยู่ใน Lobby! ปิดระบบที่เกี่ยวกับการต่อสู้...")
-        MacroState.Status = "Lobby 🏕️"
-    end
-end)
-
--- 🛠️ ฟังก์ชัน Helper สำหรับ Real-Time Save
-local function BindSave(uiElement)
-    uiElement:OnChanged(function()
-        if IsBooting then return end -- ป้องกันการเซฟมั่วตอนโหลดเข้าเกม
-        pcall(function() SaveManager:Save("SilentAutoSaveConfig") end)
-    end)
-end
+local AutomationState = {
+    LastClick = {},
+    LastUpgradeSweep = 0,
+    LastSpeedCheck = 0
+}
 
 -- ============================================================================
--- 3. FILE SYSTEM (MacroFS) & UTILITIES
+-- 2. FILE SYSTEM (MacroFS)
 -- ============================================================================
 local MacroFS = { FolderName = "TD_MasterMacros", Extension = ".json" }
 if isfolder and not isfolder(MacroFS.FolderName) then makefolder(MacroFS.FolderName) end
 
 function MacroFS.GetMacroFiles()
     local files = {"None"}
-    if listfiles then pcall(function() for _, path in ipairs(listfiles(MacroFS.FolderName)) do local fileName = string.match(path, "([^/\\]+)%.json$") if fileName then table.insert(files, fileName) end end end) end
+    if listfiles then
+        pcall(function()
+            for _, path in ipairs(listfiles(MacroFS.FolderName)) do
+                local fileName = string.match(path, "([^/\\]+)%.json$")
+                if fileName then table.insert(files, fileName) end
+            end
+        end)
+    end
     return #files > 1 and files or {"None"}
 end
 
 function MacroFS.CreateEmptyMacro(name)
     if name == "" or name == "None" then return false end
-    if writefile then writefile(MacroFS.FolderName .. "/" .. name .. MacroFS.Extension, HttpService:JSONEncode({ Info = "Ultimate Macro V7.0", Actions = {} })) return true end
+    local path = MacroFS.FolderName .. "/" .. name .. MacroFS.Extension
+    local emptyData = HttpService:JSONEncode({ Info = "Ultimate Macro V5.1", Actions = {} })
+    if writefile then writefile(path, emptyData) return true end
     return false
 end
 
@@ -102,22 +80,48 @@ function MacroFS.DeleteMacro(name)
     return false
 end
 
+-- ============================================================================
+-- 3. UTILITY & PARSING FUNCTIONS (Core Logic)
+-- ============================================================================
 local function ParsePrice(value)
     if type(value) == "number" then return math.max(0, math.floor(value + 0.5)) end
     if type(value) ~= "string" then return 0 end
-    local numberText, suffix = string.lower(value):gsub("[$,]", ""):gsub("%s+", ""):match("([%d%.]+)([kmbt]?)")
+    local text = string.lower(value):gsub("[$,]", ""):gsub("%s+", "")
+    local numberText, suffix = text:match("([%d%.]+)([kmbt]?)")
     local amount = tonumber(numberText)
     if not amount then return 0 end
     local multipliers = { k = 1000, m = 1000000, b = 1000000000, t = 1000000000000 }
     return math.max(0, math.floor((amount * (multipliers[suffix] or 1)) + 0.5))
 end
 
-local function ReadText(instance) return (instance and (instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox"))) and instance.Text or "" end
-local function SafeFind(root, ...) local current = root for _, name in ipairs({...}) do if not current then return nil end current = current:FindFirstChild(name) end return current end
-local function IsVisible(instance) local ok, result = pcall(function() return instance and instance.Visible == true end) return ok and result or false end
+local function ReadText(instance)
+    if instance and (instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox")) then return instance.Text end
+    return ""
+end
+
+local function SafeFind(root, ...)
+    local current = root
+    for _, name in ipairs({...}) do
+        if not current then return nil end
+        current = current:FindFirstChild(name)
+    end
+    return current
+end
+
+local function IsVisible(instance)
+    local ok, result = pcall(function() return instance and instance.Visible == true end)
+    return ok and result or false
+end
+
 local function GetHUD() return LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("HUD") end
-local function GetCurrentWave() local ok, wave = pcall(function() return tonumber(ReadText(SafeFind(LocalPlayer.PlayerGui, "HUD", "Wave")):match("(%d+)")) or 0 end) return ok and wave or 0 end
-local function GetCurrentCash() local ok, cash = pcall(function() return ParsePrice(ReadText(SafeFind(LocalPlayer.PlayerGui, "HUD", "BottomFrame", "CurrencyList", "Cash"))) end) return ok and cash or 0 end
+local function GetCurrentWave()
+    local ok, wave = pcall(function() return tonumber(ReadText(SafeFind(LocalPlayer.PlayerGui, "HUD", "Wave")):match("(%d+)")) or 0 end)
+    return ok and wave or 0
+end
+local function GetCurrentCash()
+    local ok, cash = pcall(function() return ParsePrice(ReadText(SafeFind(LocalPlayer.PlayerGui, "HUD", "BottomFrame", "CurrencyList", "Cash"))) end)
+    return ok and cash or 0
+end
 local function GetTimeSinceRecording() return RecordingStartTime == 0 and 0 or math.max(0, tick() - RecordingStartTime) end
 local function CFrameToTable(cf) return typeof(cf) == "CFrame" and {cf.X, cf.Y, cf.Z} or nil end
 local function TableToCFrame(values) return (type(values) == "table" and #values >= 3) and CFrame.new(values[1], values[2], values[3]) or nil end
@@ -147,9 +151,16 @@ local function GetUnitPosition(unitInstance)
     return nil
 end
 
+-- ระบบทะลวง UI โคตรโกง (Bypass UI Blocking)
 local function VirtualClick(button)
     if not button then return end
-    if getconnections then pcall(function() for _, conn in ipairs(getconnections(button.MouseButton1Click)) do pcall(function() conn:Fire() end) end end) pcall(function() for _, conn in ipairs(getconnections(button.Activated)) do pcall(function() conn:Fire() end) end end) elseif firesignal then pcall(function() firesignal(button.MouseButton1Click) end) pcall(function() firesignal(button.Activated) end) end
+    if getconnections then
+        pcall(function() for _, conn in ipairs(getconnections(button.MouseButton1Click)) do pcall(function() conn:Fire() end) end end)
+        pcall(function() for _, conn in ipairs(getconnections(button.Activated)) do pcall(function() conn:Fire() end) end end)
+    elseif firesignal then
+        pcall(function() firesignal(button.MouseButton1Click) end)
+        pcall(function() firesignal(button.Activated) end)
+    end
     pcall(function() button:Activate() end)
 end
 
@@ -164,25 +175,60 @@ end
 
 local function FindActionButton(actionsFrame, names)
     if not actionsFrame then return nil end
-    for _, name in ipairs(names) do local button = actionsFrame:FindFirstChild(name) if button then return button end end
+    for _, name in ipairs(names) do
+        local button = actionsFrame:FindFirstChild(name)
+        if button then return button end
+    end
     for _, descendant in ipairs(actionsFrame:GetDescendants()) do
         if descendant:IsA("TextButton") or descendant:IsA("ImageButton") then
             local lowerName, lowerText = string.lower(descendant.Name), string.lower(ReadText(descendant))
-            for _, name in ipairs(names) do local target = string.lower(name) if lowerName:find(target, 1, true) or lowerText:find(target, 1, true) then return descendant end end
+            for _, name in ipairs(names) do
+                local target = string.lower(name)
+                if lowerName:find(target, 1, true) or lowerText:find(target, 1, true) then return descendant end
+            end
         end
     end
     return nil
 end
 
+-- ==========================================
+-- [เพิ่มใหม่] ฟังก์ชัน Base64 สำหรับ Export/Import
+-- ==========================================
 local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-local function Base64Encode(data) return ((data:gsub('.', function(x) local r,b='',x:byte() for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end return r; end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x) if (#x < 6) then return '' end local c=0 for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end return b:sub(c+1,c+1) end)..({ '', '==', '=' })[#data%3+1]) end
-local function Base64Decode(data) data = string.gsub(data, '[^'..b..'=]', '') return (data:gsub('.', function(x) if (x == '=') then return '' end local r,f='',(b:find(x)-1) for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end return r; end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x) if (#x ~= 8) then return '' end local c=0 for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end return string.char(c) end)) end
+local function Base64Encode(data)
+    return ((data:gsub('.', function(x) 
+        local r,b='',x:byte()
+        for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
+        return r;
+    end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+        if (#x < 6) then return '' end
+        local c=0
+        for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
+        return b:sub(c+1,c+1)
+    end)..({ '', '==', '=' })[#data%3+1])
+end
+
+local function Base64Decode(data)
+    data = string.gsub(data, '[^'..b..'=]', '')
+    return (data:gsub('.', function(x)
+        if (x == '=') then return '' end
+        local r,f='',(b:find(x)-1)
+        for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
+        return r;
+    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+        if (#x ~= 8) then return '' end
+        local c=0
+        for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
+        return string.char(c)
+    end))
+end
 
 -- ============================================================================
--- 4. BUILDING THE UI (V7.0 Clean Architecture + Real-Time Events)
+-- 4. BUILDING THE UI (V5.1 Clean Architecture)
 -- ============================================================================
 local Window = Fluent:CreateWindow({
-    Title = "AutoPlay Hub Pro", SubTitle = "Ultimate Macro V7.0",
+    Title = "AutoPlay Hub Pro",
+    SubTitle = "Ultimate Macro V5.1",
     TabWidth = 160, Size = UDim2.fromOffset(620, 500),
     Acrylic = true, Theme = "Darker", MinimizeKey = Enum.KeyCode.LeftControl
 })
@@ -192,6 +238,7 @@ local Tabs = {
     Macro = Window:AddTab({Title = "Macro Engine", Icon = "play"}),
     Settings = Window:AddTab({Title = "Settings", Icon = "settings"})
 }
+Window:SelectTab(1)
 
 -- ---------------- [ TAB 1: MACRO ENGINE ] ----------------
 Tabs.Macro:AddSection("Status")
@@ -223,99 +270,110 @@ MacroDropdown = Tabs.Macro:AddDropdown("SelectMacroFile", { Title = "📂 Select
 MacroDropdown:OnChanged(function(value) UpdateUIStatus(nil, value, nil, nil, nil) end)
 Tabs.Macro:AddButton({ Title = "🔄 Refresh List", Callback = function() MacroDropdown:SetValues(MacroFS.GetMacroFiles()) end})
 Tabs.Macro:AddButton({ Title = "🗑️ Delete Selected File", Callback = function()
-    if MacroDropdown.Value ~= "None" and MacroFS.DeleteMacro(MacroDropdown.Value) then
+    local selectedFile = MacroDropdown.Value
+    if selectedFile ~= "None" and MacroFS.DeleteMacro(selectedFile) then
         Fluent:Notify({ Title = "Deleted", Content = "ลบไฟล์มาโครสำเร็จ!", Duration = 3 })
         MacroDropdown:SetValues(MacroFS.GetMacroFiles())
         MacroDropdown:SetValue("None")
         UpdateUIStatus(nil, "None", nil, nil, 0)
     end
 end})
-Tabs.Macro:AddButton({ Title = "📤 Export Selected Macro", Callback = function()
-    if MacroDropdown.Value == "None" then return Fluent:Notify({ Title = "Error", Content = "เลือกไฟล์ก่อน Export!", Duration = 3 }) end
-    local path = MacroFS.FolderName .. "/" .. MacroDropdown.Value .. MacroFS.Extension
+Tabs.Macro:AddButton({ Title = "📤 Export Selected Macro (Copy to Clipboard)", Callback = function()
+    local selectedFile = MacroDropdown.Value
+    if selectedFile == "None" then return Fluent:Notify({ Title = "Error", Content = "เลือกไฟล์ก่อน Export!", Duration = 3 }) end
+    
+    local path = MacroFS.FolderName .. "/" .. selectedFile .. MacroFS.Extension
     if isfile(path) then
-        if setclipboard then setclipboard("TDMACRO_" .. Base64Encode(readfile(path))) Fluent:Notify({ Title = "Exported!", Content = "ก๊อปปี้โค้ดมาโครแล้ว!", Duration = 5 })
-        else Fluent:Notify({ Title = "Error", Content = "ตัวรันไม่รองรับก๊อปปี้", Duration = 3 }) end
+        local rawData = readfile(path)
+        local encodedData = "TDMACRO_" .. Base64Encode(rawData)
+        if setclipboard then
+            setclipboard(encodedData)
+            Fluent:Notify({ Title = "Exported!", Content = "ก๊อปปี้โค้ดมาโครแล้ว เอาไปแจกได้เลย!", Duration = 5 })
+        else
+            Fluent:Notify({ Title = "Error", Content = "ตัวรันนี้ไม่รองรับระบบก๊อปปี้ (setclipboard)", Duration = 3 })
+        end
     end
 end})
 
 local ImportCodeInput = Tabs.Macro:AddInput("ImportCodeInput", { Title = "📥 Paste Macro Code", Placeholder = "วางโค้ด TDMACRO_ ที่นี่...", Finished = false })
 local ImportNameInput = Tabs.Macro:AddInput("ImportNameInput", { Title = "✏️ New Macro Name", Placeholder = "ตั้งชื่อไฟล์ใหม่...", Finished = false })
+
 Tabs.Macro:AddButton({ Title = "💾 Import & Save Macro", Callback = function()
-    local code, newName = ImportCodeInput.Value, ImportNameInput.Value
-    if code == "" or newName == "" then return Fluent:Notify({ Title = "Error", Content = "กรอกข้อมูลให้ครบ!", Duration = 3 }) end
+    local code = ImportCodeInput.Value
+    local newName = ImportNameInput.Value
+    
+    if code == "" or newName == "" then return Fluent:Notify({ Title = "Error", Content = "กรอกโค้ดและชื่อไฟล์ให้ครบ!", Duration = 3 }) end
     if not string.find(code, "^TDMACRO_") then return Fluent:Notify({ Title = "Error", Content = "โค้ดมาโครไม่ถูกต้อง!", Duration = 3 }) end
-    local success, decodedData = pcall(function() return Base64Decode(string.gsub(code, "TDMACRO_", "")) end)
+    
+    local cleanCode = string.gsub(code, "TDMACRO_", "")
+    local success, decodedData = pcall(function() return Base64Decode(cleanCode) end)
+    
     if success and decodedData and string.find(decodedData, "Actions") then
+        local path = MacroFS.FolderName .. "/" .. newName .. MacroFS.Extension
         if writefile then
-            writefile(MacroFS.FolderName .. "/" .. newName .. MacroFS.Extension, decodedData)
-            Fluent:Notify({ Title = "Success!", Content = "นำเข้าไฟล์สำเร็จ!", Duration = 4 })
+            writefile(path, decodedData)
+            Fluent:Notify({ Title = "Import Success!", Content = "นำเข้าไฟล์ " .. newName .. " สำเร็จ!", Duration = 4 })
             MacroDropdown:SetValues(MacroFS.GetMacroFiles())
             MacroDropdown:SetValue(newName)
             UpdateUIStatus(nil, newName, nil, nil, 0)
         end
+    else
+        Fluent:Notify({ Title = "Error", Content = "ไฟล์เสียหรือถอดรหัสไม่ได้!", Duration = 3 })
     end
 end})
 
+-- Controls Section + Auto Upgrade All
 Tabs.Macro:AddSection("Controls")
 local PlaybackMode = Tabs.Macro:AddDropdown("PlaybackMode", { Title = "⚙️ Playback Mode", Values = {"Strict Time", "Money + Time", "Action Based"}, Multi = false, Default = 2 })
-BindSave(PlaybackMode)
-local AutoUpgradeAll = Tabs.Macro:AddToggle("AutoUpgradeAll", { Title = "⬆️ Auto Upgrade All", Default = false })
-BindSave(AutoUpgradeAll)
+local AutoUpgradeAll = Tabs.Macro:AddToggle("AutoUpgradeAll", { Title = "⬆️ Auto Upgrade All", Description = "อัพเกรดทุกตัวอัตโนมัติ (จะหยุดทำงานเมื่อ Macro กำลังเล่น)", Default = false })
 
 -- ---------------- [ TAB 2: INGAME ] ----------------
 Tabs.Ingame:AddSection("🕹️ Main Options")
 local SpeedMode = Tabs.Ingame:AddDropdown("SpeedMode", { Title = "⏩ Speed Mode", Values = {"1x", "2x", "3x"}, Multi = false, Default = 1 })
-BindSave(SpeedMode)
 local EnableAutoGameSpeed = Tabs.Ingame:AddToggle("EnableAutoGameSpeed", { Title = "✅ Enable Auto GameSpeed", Default = false })
-BindSave(EnableAutoGameSpeed)
 local EndMatchMode = Tabs.Ingame:AddDropdown("EndMatchMode", { Title = "🔚 End Match Mode", Values = {"Auto Next", "Auto Replay", "Return to Lobby"}, Multi = false, Default = 1 })
-BindSave(EndMatchMode)
 
 Tabs.Ingame:AddSection("♻️ Fail-Safe Recovery")
 local AutoRetryOnDefeat = Tabs.Ingame:AddToggle("AutoRetryOnDefeat", { Title = "💔 Auto Retry on Defeat", Default = true })
-BindSave(AutoRetryOnDefeat)
 
 Tabs.Ingame:AddSection("📈 Match Progression")
-local AutoSkipWave = Tabs.Ingame:AddToggle("AutoSkipWave", { Title = "⏭️ Auto Skip Wave", Default = false })
-BindSave(AutoSkipWave)
+local AutoSkipWave = Tabs.Ingame:AddToggle("AutoSkipWave", { Title = "⏭️ Auto Skip Wave (Vote Skip)", Default = false })
 local EnableEndMatchAutomation = Tabs.Ingame:AddToggle("EnableEndMatchAutomation", { Title = "🤖 Enable End Match Automation", Default = false })
-BindSave(EnableEndMatchAutomation)
 
 Tabs.Ingame:AddSection("🗳️ Vote Mode")
 local AutoVoteModeDropdown = Tabs.Ingame:AddDropdown("AutoVoteModeDropdown", { Title = "🎯 Auto Vote Mode", Values = {"Normal", "Extreme"}, Multi = false, Default = 1 })
-BindSave(AutoVoteModeDropdown)
 local EnableAutoVote = Tabs.Ingame:AddToggle("EnableAutoVote", { Title = "✅ Enable Auto Vote", Default = false })
-BindSave(EnableAutoVote)
 
 -- ---------------- [ TAB 3: SETTINGS ] ----------------
 Tabs.Settings:AddSection("⚡ Performance")
 local AntiAFK = Tabs.Settings:AddToggle("AntiAFK", { Title = "🏃‍♂️ Anti-AFK", Default = true })
-BindSave(AntiAFK)
-local AutoRejoin = Tabs.Settings:AddToggle("AutoRejoin", { Title = "🔄 Auto Rejoin on Kick", Default = false })
-BindSave(AutoRejoin)
+
+Tabs.Settings:AddSection("🚑 Safety & Recovery")
+local AutoRejoin = Tabs.Settings:AddToggle("AutoRejoin", { Title = "🔄 Auto Rejoin on Kick/Disconnect", Default = false })
 
 -- ============================================================================
--- 5. PLAYBACK ENGINE
+-- 5. PLAYBACK ENGINE (Logic & Replay)
 -- ============================================================================
 local function RecordAction(actionType, data)
-    if MacroState.Status ~= "Recording 🔴" or not IsInGame then return end
+    if MacroState.Status ~= "Recording 🔴" then return end
     local currentWave, timestamp = GetCurrentWave(), GetTimeSinceRecording()
     local actionEntry = { ActionType = actionType, Wave = currentWave, TimeInWave = timestamp, Timestamp = timestamp, Cost = ParsePrice(data.Cost or 0), Data = data }
     table.insert(RecordedActions, actionEntry)
     UpdateUIStatus(nil, nil, currentWave, math.floor(timestamp), #RecordedActions)
+    print(string.format("[Macro Recorded] %s | Cost: %d | Time: %.1fs", actionType, actionEntry.Cost, timestamp))
 end
 
 local function StopMacroPlayback()
     Playback.Token += 1
     Playback.Running = false
-    if IsInGame then UpdateUIStatus("Idle ⚪") end
+    UpdateUIStatus("Idle ⚪")
 end
 
 local function FindUnitForAction(data)
     local wantedName = data.UnitName or data.Unit
     local wantedPosition = data.Position and Vector3.new(data.Position[1], data.Position[2], data.Position[3])
     local bestUnit, bestDistance = nil, math.huge
+
     for _, candidate in ipairs((Workspace:FindFirstChild("Unit") or Workspace):GetDescendants()) do
         if (candidate:IsA("Model") or candidate:IsA("BasePart")) and candidate.Name == wantedName then
             if wantedPosition then
@@ -331,18 +389,26 @@ local function FindUnitForAction(data)
 end
 
 local function WaitForActionReady(action, playbackStartTime, token)
-    local mode, targetTime, targetWave, targetCost = PlaybackMode.Value, tonumber(action.Timestamp or action.TimeInWave) or 0, tonumber(action.Wave) or 0, ParsePrice(action.Cost)
-    if mode == "Strict Time" or mode == "Money + Time" then while Playback.Running and Playback.Token == token and (tick() - playbackStartTime < targetTime) do task.wait(0.1) end end
-    if targetWave > 0 then while Playback.Running and Playback.Token == token and (GetCurrentWave() < targetWave) do task.wait(0.5) end end
-    if mode == "Money + Time" and targetCost > 0 then while Playback.Running and Playback.Token == token and (GetCurrentCash() < targetCost) do task.wait(0.2) end end
+    local mode = PlaybackMode.Value
+    local targetTime, targetWave, targetCost = tonumber(action.Timestamp or action.TimeInWave) or 0, tonumber(action.Wave) or 0, ParsePrice(action.Cost)
+
+    if mode == "Strict Time" or mode == "Money + Time" then
+        while Playback.Running and Playback.Token == token and (tick() - playbackStartTime < targetTime) do task.wait(0.1) end
+    end
+    if targetWave > 0 then
+        while Playback.Running and Playback.Token == token and (GetCurrentWave() < targetWave) do task.wait(0.5) end
+    end
+    if mode == "Money + Time" and targetCost > 0 then
+        while Playback.Running and Playback.Token == token and (GetCurrentCash() < targetCost) do task.wait(0.2) end
+    end
     return Playback.Running and Playback.Token == token
 end
 
 local function PlayMacro(loopPlayback)
-    if not IsInGame then return end
     if Playback.Running then StopMacroPlayback() task.wait(0.2) end
     local path = MacroFS.FolderName .. "/" .. MacroState.CurrentFile .. MacroFS.Extension
     if not isfile(path) then Fluent:Notify({ Title = "Error", Content = "หาไฟล์ไม่เจอ!", Duration = 3 }) return end
+    
     local ok, result = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
     if not ok or not result.Actions then return end
 
@@ -352,36 +418,37 @@ local function PlayMacro(loopPlayback)
     local token = Playback.Token
 
     task.spawn(function()
-        local playbackStartTime = tick()
-        for index, action in ipairs(actions) do
-            if Playback.Token ~= token or not Playback.Running then break end
-            UpdateUIStatus(nil, nil, GetCurrentWave(), math.floor(tick() - playbackStartTime), index - 1)
-            if WaitForActionReady(action, playbackStartTime, token) then
-                local actionType, data = action.ActionType, action.Data
-                if actionType == "Summon" then
-                    local cf = TableToCFrame(data.CFrameData or data.CFrame)
-                    if cf then pcall(function() InputRemote:FireServer("Summon", { Rotation = data.Rotation or 0, cframe = cf, Unit = data.Unit }) end) end
-                elseif actionType == "Upgrade" then
-                    local unit = FindUnitForAction(data)
-                    if unit then pcall(function() ServerRemote:InvokeServer("Upgrade", unit) end) end
-                elseif actionType == "Sell" then
-                    local unit = FindUnitForAction(data)
-                    if unit then pcall(function() ServerRemote:InvokeServer("Sell", unit) end) end
+            local playbackStartTime = tick()
+            for index, action in ipairs(actions) do
+                if Playback.Token ~= token or not Playback.Running then break end
+                UpdateUIStatus(nil, nil, GetCurrentWave(), math.floor(tick() - playbackStartTime), index - 1)
+
+                if WaitForActionReady(action, playbackStartTime, token) then
+                    local actionType, data = action.ActionType, action.Data
+                    if actionType == "Summon" then
+                        local cf = TableToCFrame(data.CFrameData or data.CFrame)
+                        if cf then pcall(function() InputRemote:FireServer("Summon", { Rotation = data.Rotation or 0, cframe = cf, Unit = data.Unit }) end) end
+                    elseif actionType == "Upgrade" then
+                        local unit = FindUnitForAction(data)
+                        if unit then pcall(function() ServerRemote:InvokeServer("Upgrade", unit) end) end
+                    elseif actionType == "Sell" then
+                        local unit = FindUnitForAction(data)
+                        if unit then pcall(function() ServerRemote:InvokeServer("Sell", unit) end) end
+                    end
                 end
+                UpdateUIStatus(nil, nil, GetCurrentWave(), math.floor(tick() - playbackStartTime), index)
+                task.wait(0.1)
             end
-            UpdateUIStatus(nil, nil, GetCurrentWave(), math.floor(tick() - playbackStartTime), index)
-            task.wait(0.1)
-        end
-        if loopPlayback and Playback.Token == token then task.wait(2) end
+            if loopPlayback and Playback.Token == token then task.wait(2) end
+
         if Playback.Token == token then Playback.Running = false UpdateUIStatus("Idle ⚪") end
     end)
 end
 
 -- ============================================================================
--- 6. CONTROLS BINDING
+-- 6. CONTROLS BINDING (Macro Engine UI Logic)
 -- ============================================================================
 Tabs.Macro:AddButton({ Title = "🔴 Start Recording", Callback = function()
-    if not IsInGame then Fluent:Notify({ Title = "Warning", Content = "อัดมาโครได้เฉพาะในเกมเท่านั้น!", Duration = 3 }) return end
     if MacroState.CurrentFile == "None" then Fluent:Notify({ Title = "Warning", Content = "เลือกไฟล์ก่อนอัด!", Duration = 3 }) return end
     RecordedActions, RecordingStartTime = {}, tick()
     UpdateUIStatus("Recording 🔴", nil, 0, 0, 0)
@@ -391,98 +458,204 @@ end})
 Tabs.Macro:AddButton({ Title = "⏹️ Stop Recording & Auto-Save", Callback = function()
     if MacroState.Status == "Recording 🔴" then
         UpdateUIStatus("Idle ⚪")
+        local dataToSave = { Info = "Ultimate Macro System V5.1", TotalActions = #RecordedActions, Actions = RecordedActions }
+        local path = MacroFS.FolderName .. "/" .. MacroState.CurrentFile .. MacroFS.Extension
         if writefile then
-            pcall(function() writefile(MacroFS.FolderName .. "/" .. MacroState.CurrentFile .. MacroFS.Extension, HttpService:JSONEncode({ Info = "Ultimate Macro System V7.0", TotalActions = #RecordedActions, Actions = RecordedActions })) end)
+            pcall(function() writefile(path, HttpService:JSONEncode(dataToSave)) end)
             Fluent:Notify({ Title = "Saved", Content = "เซฟมาโคร " .. #RecordedActions .. " แอคชั่น", Duration = 3 })
         end
     end
 end})
 
-local AutoPlayMacro = Tabs.Macro:AddToggle("AutoPlayMacro", { Title = "🟢 Auto Play Selected Macro (Looping)", Default = false })
-BindSave(AutoPlayMacro)
+-- สร้างตัวแปรล็อกระบบไว้ก่อน ป้องกัน UI ตีกันตอนโหลดเซฟ
+local IsBooting = true 
 
+local AutoPlayMacro = Tabs.Macro:AddToggle("AutoPlayMacro", { Title = "🟢 Auto Play Selected Macro (Looping)", Default = false })
 AutoPlayMacro:OnChanged(function(value)
-    if IsBooting then return end 
+    if IsBooting then return end -- ถ้ากำลัง Boot เซฟอยู่ ห้ามเสร่อทำงาน! ปล่อยผ่านไปเลย
+    
     if value then
-        if not IsInGame or MacroState.CurrentFile == "None" then AutoPlayMacro:SetValue(false) return end
+        if MacroState.CurrentFile == "None" then 
+            AutoPlayMacro:SetValue(false) 
+            return 
+        end
         UpdateUIStatus("Playing (Loop) 🟢")
         PlayMacro(true)
-    else StopMacroPlayback() end
+    else 
+        StopMacroPlayback() 
+    end
 end)
 
 Tabs.Macro:AddButton({ Title = "▶️ Play Macro (Run Once)", Callback = function()
-    if MacroState.CurrentFile ~= "None" and IsInGame then UpdateUIStatus("Playing (Once) ▶️") PlayMacro(false) end
+    if MacroState.CurrentFile == "None" then return end
+    UpdateUIStatus("Playing (Once) ▶️")
+    PlayMacro(false)
 end})
 
 Tabs.Macro:AddButton({ Title = "⏹️ Stop Macro", Callback = function()
-    StopMacroPlayback() AutoPlayMacro:SetValue(false)
+    StopMacroPlayback()
+    AutoPlayMacro:SetValue(false)
 end})
 
 -- ============================================================================
--- 7. INGAME AUTOMATION FEATURES
+-- 7. V5.1 INGAME AUTOMATION FEATURES (With User's AutoSpeed)
 -- ============================================================================
-local function RunAutoVote() if EnableAutoVote.Value and IsVisible(SafeFind(GetHUD(), "ModeVoteFrame")) then ClickWithCooldown("ModeVote_" .. AutoVoteModeDropdown.Value, SafeFind(GetHUD(), "ModeVoteFrame", AutoVoteModeDropdown.Value, "TextButton"), 0.6) end end
-local function RunAutoSkipWave() if AutoSkipWave.Value and IsVisible(SafeFind(GetHUD(), "NextWaveVote")) then ClickWithCooldown("NextWaveYes", SafeFind(GetHUD(), "NextWaveVote", "YesButton") or FindActionButton(SafeFind(GetHUD(), "NextWaveVote"), {"Yes", "YesButton"}), 0.35) end end
+local function RunAutoVote()
+    if not EnableAutoVote.Value then return end
+    local voteFrame = SafeFind(GetHUD(), "ModeVoteFrame")
+    if not IsVisible(voteFrame) then return end
+    local choice = AutoVoteModeDropdown.Value
+    local button = SafeFind(voteFrame, choice, "TextButton")
+    ClickWithCooldown("ModeVote_" .. choice, button, 0.6)
+end
+
+local function RunAutoSkipWave()
+    if not AutoSkipWave.Value then return end
+    local nextWaveVote = SafeFind(GetHUD(), "NextWaveVote")
+    if not IsVisible(nextWaveVote) then return end
+    local yesButton = SafeFind(nextWaveVote, "YesButton") or FindActionButton(nextWaveVote, {"Yes", "YesButton"})
+    ClickWithCooldown("NextWaveYes", yesButton, 0.35)
+end
+
 local function RunEndMatchAutomation()
     if not EnableEndMatchAutomation.Value then return end
     local missionEnd = SafeFind(GetHUD(), "MissionEnd")
     if not IsVisible(missionEnd) then return end
+
+    local statusText = ReadText(SafeFind(missionEnd, "BG", "Status", "Status"))
     local actions = SafeFind(missionEnd, "BG", "Actions")
     if not actions then return end
-    if ReadText(SafeFind(missionEnd, "BG", "Status", "Status")) == "Failed!" and AutoRetryOnDefeat.Value then ClickWithCooldown("MissionEndReplayAggressive", FindActionButton(actions, {"Replay"}), 0.15) return end
+
+    -- กรณีแพ้
+    if statusText == "Failed!" and AutoRetryOnDefeat.Value then
+        ClickWithCooldown("MissionEndReplayAggressive", FindActionButton(actions, {"Replay"}), 0.15)
+        return
+    end
+
+    -- ตามโหมดที่เลือก
     local mode = EndMatchMode.Value
-    ClickWithCooldown("MissionEnd_" .. tostring(mode), (mode == "Auto Next" and FindActionButton(actions, {"Next"})) or (mode == "Auto Replay" and FindActionButton(actions, {"Replay"})) or (mode == "Return to Lobby" and FindActionButton(actions, {"Return"})), 0.45)
+    local button = (mode == "Auto Next" and FindActionButton(actions, {"Next"})) or
+                   (mode == "Auto Replay" and FindActionButton(actions, {"Replay"})) or
+                   (mode == "Return to Lobby" and FindActionButton(actions, {"Return"}))
+    
+    ClickWithCooldown("MissionEnd_" .. tostring(mode), button, 0.45)
 end
 
+-- 🛠️ โค้ด AutoSpeed ฉบับของบอสเป๊ะๆ
 local function HandleAutoSpeed()
     if not EnableAutoGameSpeed.Value then return end
-    local speedLabel = SafeFind(GetHUD(), "FastForward", "TextLabel")
-    local inputRemote = SafeFind(ReplicatedStorage, "Remotes", "Input")
-    if speedLabel and inputRemote then
-        task.spawn(function()
-            local currentSpeed, targetSpeed = tonumber(string.match(speedLabel.Text, "%d+")) or 1, tonumber(string.match(SpeedMode.Value, "%d+")) or 1
-            if currentSpeed < targetSpeed then inputRemote:FireServer("SpeedChange", true) task.wait(0.5) elseif currentSpeed > targetSpeed then inputRemote:FireServer("SpeedChange", false) task.wait(0.5) end
-        end)
-    end
+    local hud = LocalPlayer.PlayerGui:FindFirstChild("HUD")
+    if not hud then return end
+    local speedLabel = hud:FindFirstChild("FastForward") and hud.FastForward:FindFirstChild("TextLabel")
+    if not speedLabel then return end
+    
+    local currentSpeed = tonumber(string.match(speedLabel.Text, "%d+")) or 1
+    local targetSpeed = tonumber(string.match(SpeedMode.Value, "%d+")) or 1
+    local inputRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Input")
+    
+    if not inputRemote then return end
+    
+    -- ใส่ task.spawn ครอบไว้ เพื่อไม่ให้ task.wait(0.5) ไปหน่วงการข้ามเวฟ
+    task.spawn(function()
+        if currentSpeed < targetSpeed then
+            inputRemote:FireServer("SpeedChange", true)
+            task.wait(0.5)
+        elseif currentSpeed > targetSpeed then
+            inputRemote:FireServer("SpeedChange", false)
+            task.wait(0.5)
+        end
+    end)
 end
 
 local function RunAutoUpgradeAll()
     if not AutoUpgradeAll.Value or Playback.Running == true then return end
     local unitFolder = Workspace:FindFirstChild("Unit")
-    if unitFolder then for _, unitInstance in ipairs(unitFolder:GetChildren()) do if Playback.Running == true or not AutoUpgradeAll.Value then break end pcall(function() ServerRemote:InvokeServer("Upgrade", unitInstance) end) task.wait(0.05) end end
+    if not unitFolder then return end
+
+    for _, unitInstance in ipairs(unitFolder:GetChildren()) do
+        if Playback.Running == true or not AutoUpgradeAll.Value then break end
+        pcall(function() ServerRemote:InvokeServer("Upgrade", unitInstance) end)
+        task.wait(0.05)
+    end
 end
 
+-- ลูปการทำงานของระบบอัตโนมัติเบื้องหลัง
 task.spawn(function()
     while task.wait(0.2) do
-        if IsInGame then -- ดักลอจิกให้ทำงานแค่ตอนอยู่ในด่าน
-            pcall(RunAutoVote)
-            pcall(RunAutoSkipWave)
-            pcall(RunEndMatchAutomation)
-            local now = os.clock()
-            if now - AutomationState.LastSpeedCheck > 2 then AutomationState.LastSpeedCheck = now pcall(HandleAutoSpeed) end
-            if now - AutomationState.LastUpgradeSweep >= 1.5 then AutomationState.LastUpgradeSweep = now pcall(RunAutoUpgradeAll) end
+        pcall(RunAutoVote)
+        pcall(RunAutoSkipWave)
+        pcall(RunEndMatchAutomation)
+        
+        local now = os.clock()
+        -- เช็คความเร็วเกมทุกๆ 2 วินาที
+        if now - AutomationState.LastSpeedCheck > 2 then
+            AutomationState.LastSpeedCheck = now
+            pcall(HandleAutoSpeed)
+        end
+        
+        -- วนอัพเกรดทุก 1.5 วินาทีถ้าว่าง
+        if now - AutomationState.LastUpgradeSweep >= 1.5 then 
+            AutomationState.LastUpgradeSweep = now
+            pcall(RunAutoUpgradeAll)
         end
     end
 end)
 
 -- ============================================================================
--- 8. SAFETY & HOOKS
+-- 8. SAFETY & ANTI-AFK RECOVERY
 -- ============================================================================
-LocalPlayer.Idled:Connect(function() if AntiAFK.Value then pcall(function() VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end) end end)
-task.spawn(function() CoreGui:WaitForChild("RobloxPromptGui"):WaitForChild("promptOverlay").ChildAdded:Connect(function(child) if AutoRejoin.Value and child.Name == "ErrorPrompt" then task.wait(2) pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end) end end) end)
+LocalPlayer.Idled:Connect(function()
+    if AntiAFK.Value then
+        pcall(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end)
+    end
+end)
+
+-- Auto Rejoin
+task.spawn(function()
+    local promptOverlay = CoreGui:WaitForChild("RobloxPromptGui"):WaitForChild("promptOverlay")
+    promptOverlay.ChildAdded:Connect(function(child)
+        if AutoRejoin.Value and child.Name == "ErrorPrompt" then
+            task.wait(2)
+            pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end)
+        end
+    end)
+end)
+
+-- ============================================================================
+-- 9. THE SAFE HOOK (ACTION QUEUE)
+-- ============================================================================
 
 task.spawn(function()
     while task.wait(0.05) do
         if #ActionQueue > 0 then
             for _, action in ipairs(ActionQueue) do
-                local currentCash = GetCurrentCash()
+                local currentCash = GetCurrentCash() -- เช็คเงินในกระเป๋าปัจจุบัน
+                
                 if action.Type == "Summon" then
                     local cost = GetUnitCostFromName(action.Data.Unit)
-                    if currentCash >= cost then action.Data.Cost = cost RecordAction("Summon", action.Data) else Fluent:Notify({ Title = "Skipped", Content = "เงินไม่พอวาง!", Duration = 2 }) end
+                    if currentCash >= cost then -- ตรวจสอบก่อนจดจำ
+                        action.Data.Cost = cost
+                        RecordAction("Summon", action.Data)
+                    else
+                        Fluent:Notify({ Title = "Macro Skipped", Content = "เงินไม่พอวางตัวละคร! (ไม่บันทึกลงคิว)", Duration = 2 })
+                    end
+                    
                 elseif action.Type == "Upgrade" then
-                    local targetUnit, cost = action.Data.UnitInstance, GetUpgradeCostFromUI()
-                    if currentCash >= cost and cost > 0 then RecordAction("Upgrade", { UnitName = targetUnit.Name, Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z}, Cost = cost }) else Fluent:Notify({ Title = "Skipped", Content = "เงินไม่พออัพ!", Duration = 2 }) end
-                elseif action.Type == "Sell" then RecordAction("Sell", { UnitName = action.Data.UnitInstance.Name, Position = {action.Data.UnitInstance:GetPivot().Position.X, action.Data.UnitInstance:GetPivot().Position.Y, action.Data.UnitInstance:GetPivot().Position.Z}, Cost = 0 }) end
+                    local targetUnit = action.Data.UnitInstance
+                    local cost = GetUpgradeCostFromUI()
+                    if currentCash >= cost and cost > 0 then -- ตรวจสอบก่อนจดจำ
+                        RecordAction("Upgrade", { UnitName = targetUnit.Name, Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z}, Cost = cost })
+                    else
+                        Fluent:Notify({ Title = "Macro Skipped", Content = "เงินไม่พออัพเกรด หรือตันแล้ว!", Duration = 2 })
+                    end
+                    
+                elseif action.Type == "Sell" then
+                    local targetUnit = action.Data.UnitInstance
+                    RecordAction("Sell", { UnitName = targetUnit.Name, Position = {targetUnit:GetPivot().Position.X, targetUnit:GetPivot().Position.Y, targetUnit:GetPivot().Position.Z}, Cost = 0 })
+                end
             end
             ActionQueue = {}
         end
@@ -491,74 +664,80 @@ end)
 
 local oldNamecall
 oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    local method, args = getnamecallmethod(), {...}
-    if MacroState.Status == "Recording 🔴" and IsInGame and not checkcaller() then
-        if method == "FireServer" and self == InputRemote and args[1] == "Summon" and type(args[2]) == "table" and typeof(args[2].cframe) == "CFrame" then
-            table.insert(ActionQueue, { Type = "Summon", Data = { Unit = tostring(args[2].Unit), Rotation = args[2].Rotation, CFrameData = CFrameToTable(args[2].cframe) } })
-        elseif method == "InvokeServer" and self == ServerRemote and (args[1] == "Upgrade" or args[1] == "Sell") and typeof(args[2]) == "Instance" then
-            table.insert(ActionQueue, { Type = args[1], Data = { UnitInstance = args[2] } })
+    local method = getnamecallmethod()
+    local args = {...}
+
+    if MacroState.Status == "Recording 🔴" and not checkcaller() then
+        if method == "FireServer" and self == InputRemote then
+            local commandType = args[1]
+            if commandType == "Summon" and type(args[2]) == "table" and typeof(args[2].cframe) == "CFrame" then
+                table.insert(ActionQueue, { Type = "Summon", Data = { Unit = tostring(args[2].Unit), Rotation = args[2].Rotation, CFrameData = CFrameToTable(args[2].cframe) } })
+            end
+        elseif method == "InvokeServer" and self == ServerRemote then
+            local commandType = args[1]
+            if (commandType == "Upgrade" or commandType == "Sell") and typeof(args[2]) == "Instance" then
+                table.insert(ActionQueue, { Type = commandType, Data = { UnitInstance = args[2] } })
+            end
         end
     end
     return oldNamecall(self, ...)
 end)
 
 -- ============================================================================
--- 9. MOBILE ICON & INTERFACE MANAGER
--- ============================================================================
-InterfaceManager:SetLibrary(Fluent)
-InterfaceManager:SetFolder("AutoPlayHubPro")
-InterfaceManager:BuildInterfaceSection(Tabs.Settings)
-
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "FluentMobileIcon"
-ScreenGui.Parent = game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-local ToggleButton = Instance.new("ImageButton")
-ToggleButton.Parent = ScreenGui
-ToggleButton.Size = UDim2.new(0, 50, 0, 50)
-ToggleButton.Position = UDim2.new(0.5, -25, 0, 10)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-ToggleButton.Image = "rbxassetid://10886311090"
-ToggleButton.Active = true
-ToggleButton.Draggable = true
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(1, 0)
-UICorner.Parent = ToggleButton
-
-ToggleButton.MouseButton1Click:Connect(function() Window:Minimize() end)
-
--- ============================================================================
--- 10. REAL-TIME SAVE SYSTEM & BOOTSTRAP
+-- 10. SILENT AUTO-SAVE SYSTEM & AUTO PLAY TRIGGER
 -- ============================================================================
 SaveManager:SetLibrary(Fluent)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({ "NewMacroName" }) 
 SaveManager:SetFolder("AutoPlayHubPro/UltimateMacroV5")
 
-pcall(function() SaveManager:Load("SilentAutoSaveConfig") end)
-Window:SelectTab(1)
+-- 1. ตอนโหลดสคริปต์ ให้แอบโหลดการตั้งค่าเดิมขึ้นมาก่อน
+pcall(function()
+    SaveManager:Load("SilentAutoSaveConfig")
+end)
 
--- Smart Trigger ปลดล็อกระบบ Boot
+Window:SelectTab(1)
+Fluent:Notify({ Title = "V5.1 Master Loaded", Content = "Ultimate Hub V5.1 พร้อมใช้งาน!", Duration = 5 })
+
+-- ==========================================
+-- [ชิ้นส่วน 4.2 Master] Smart Trigger เช็คสถานะไฟล์และปลดล็อกระบบ
+-- ==========================================
 task.spawn(function()
-    local timeout, elapsed, checkInterval = 10, 0, 0.5
+    local timeout = 10 -- ให้เวลารอไฟล์สูงสุด 10 วินาที
+    local elapsed = 0
+    local checkInterval = 0.5
+
+    -- ลูปเช็คว่า SaveManager โหลดชื่อไฟล์มาทับคำว่า "None" หรือยัง
     while elapsed < timeout do
-        if MacroState.CurrentFile ~= "None" and MacroState.CurrentFile ~= "" then break end
+        if MacroState.CurrentFile ~= "None" and MacroState.CurrentFile ~= "" then
+            break -- ไฟล์มาแล้ว หลุดลูปได้เลย ไม่ต้องรอครบ 10 วิ
+        end
         task.wait(checkInterval)
         elapsed = elapsed + checkInterval
     end
     
-    IsBooting = false -- ปลดล็อกระบบเซฟและ UI
+    -- โหลดเสร็จแล้ว ปลดล็อกระบบ Boot ให้ปุ่มกลับมาทำงานได้ปกติ
+    IsBooting = false 
 
+    -- ค่อยมาเช็คว่าปุ่ม Auto Play ถูกเปิดค้างไว้จากเซฟไหม
     if AutoPlayMacro and AutoPlayMacro.Value == true then
-        if MacroState.CurrentFile ~= "None" and IsInGame then
-            Fluent:Notify({ Title = "Auto Play Triggered", Content = "เริ่มลุยมาโคร...", Duration = 3 })
+        if MacroState.CurrentFile ~= "None" then
+            Fluent:Notify({ Title = "Auto Play Triggered", Content = "โหลดเซฟเสร็จสิ้น! เริ่มลุยมาโคร...", Duration = 3 })
             UpdateUIStatus("Playing (Loop) 🟢")
-            PlayMacro(true)
+            PlayMacro(true) -- สั่งลุยแบบลูปต่อเนื่อง
         else
+            -- ถ้าหมดเวลา 10 วิแล้วไฟล์ยังพังอยู่ ค่อยสับสวิตช์ปิดตัวเอง
             AutoPlayMacro:SetValue(false) 
+            Fluent:Notify({ Title = "Auto Play Failed", Content = "ไม่พบไฟล์มาโคร ยกเลิกออโต้รัน!", Duration = 3 })
         end
     end
 end)
 
-Fluent:Notify({ Title = "V7.0 Loaded", Content = "ระบบรันเสร็จสมบูรณ์!", Duration = 5 })
+-- 2. สร้างลูปซุ่มเซฟ ทำงานเบื้องหลังทุกๆ 3 วินาที
+task.spawn(function()
+    while task.wait(3) do
+        pcall(function()
+            SaveManager:Save("SilentAutoSaveConfig")
+        end)
+    end
+end)
