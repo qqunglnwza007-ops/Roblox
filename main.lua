@@ -1,5 +1,5 @@
 -- ============================================================================
--- 👑 ULTIMATE MACRO SYSTEM (V7.1) : MASTER EDITION
+-- 👑 ULTIMATE MACRO SYSTEM (V7.1.1) : MASTER EDITION
 -- Architecture: Safe Action Queue + Smart Playback + QoL Automation
 -- Updates: Auto-Execute, Smart Env Check, Mobile Icon, Real-Time Event Save
 -- ============================================================================
@@ -973,8 +973,10 @@ AutoPlayMacro:OnChanged(function(value)
 	end
 	if value then
 		if not IsInGame or MacroState.CurrentFile == "None" then
-    return
-end
+			warn("WHO TURNED OFF AUTOPLAY?")
+warn(debug.traceback())
+			return
+		end
 		UpdateUIStatus("Playing (Loop) 🟢")
 		PlayMacro(true)
 	else
@@ -1408,12 +1410,8 @@ task.spawn(function()
 			UpdateUIStatus("Playing (Loop) 🟢")
 			PlayMacro(true)
 		else
-    warn(
-    "[AUTOPLAY DEBUG]",
-    "IsInGame =", IsInGame,
-    "CurrentFile =", MacroState.CurrentFile
-)
-			AutoPlayMacro:SetValue(false)
+			warn("WHO TURNED OFF AUTOPLAY?")
+warn(debug.traceback())
 		end
 	end
 end)
