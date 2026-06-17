@@ -529,22 +529,16 @@ Tabs.Macro:AddButton({
 	end,
 })
 
-local ImportCodeInput = Tabs.Macro:AddInput(
-	"ImportCodeInput",
-	{
-		Title = "📥 Paste Macro Code",
-		Placeholder = "วางโค้ด TDMACRO_ ที่นี่...",
-		Finished = false,
-	}
-)
-local ImportNameInput = Tabs.Macro:AddInput(
-	"ImportNameInput",
-	{
-		Title = "✏️ New Macro Name",
-		Placeholder = "ตั้งชื่อไฟล์ใหม่...",
-		Finished = false,
-	}
-)
+local ImportCodeInput = Tabs.Macro:AddInput("ImportCodeInput", {
+	Title = "📥 Paste Macro Code",
+	Placeholder = "วางโค้ด TDMACRO_ ที่นี่...",
+	Finished = false,
+})
+local ImportNameInput = Tabs.Macro:AddInput("ImportNameInput", {
+	Title = "✏️ New Macro Name",
+	Placeholder = "ตั้งชื่อไฟล์ใหม่...",
+	Finished = false,
+})
 Tabs.Macro:AddButton({
 	Title = "💾 Import & Save Macro",
 	Callback = function()
@@ -583,15 +577,12 @@ Tabs.Macro:AddButton({
 })
 
 Tabs.Macro:AddSection("Controls")
-local PlaybackMode = Tabs.Macro:AddDropdown(
-	"PlaybackMode",
-	{
-		Title = "⚙️ Playback Mode",
-		Values = { "Strict Time", "Money + Time", "Action Based" },
-		Multi = false,
-		Default = 2,
-	}
-)
+local PlaybackMode = Tabs.Macro:AddDropdown("PlaybackMode", {
+	Title = "⚙️ Playback Mode",
+	Values = { "Strict Time", "Money + Time", "Action Based" },
+	Multi = false,
+	Default = 2,
+})
 BindSave(PlaybackMode)
 local AutoUpgradeAll = Tabs.Macro:AddToggle("AutoUpgradeAll", { Title = "⬆️ Auto Upgrade All", Default = false })
 BindSave(AutoUpgradeAll)
@@ -606,15 +597,12 @@ BindSave(SpeedMode)
 local EnableAutoGameSpeed =
 	Tabs.Ingame:AddToggle("EnableAutoGameSpeed", { Title = "✅ Enable Auto GameSpeed", Default = false })
 BindSave(EnableAutoGameSpeed)
-local EndMatchMode = Tabs.Ingame:AddDropdown(
-	"EndMatchMode",
-	{
-		Title = "🔚 End Match Mode",
-		Values = { "Auto Next", "Auto Replay", "Return to Lobby" },
-		Multi = false,
-		Default = 1,
-	}
-)
+local EndMatchMode = Tabs.Ingame:AddDropdown("EndMatchMode", {
+	Title = "🔚 End Match Mode",
+	Values = { "Auto Next", "Auto Replay", "Return to Lobby" },
+	Multi = false,
+	Default = 1,
+})
 BindSave(EndMatchMode)
 
 Tabs.Ingame:AddSection("♻️ Fail-Safe Recovery")
@@ -953,13 +941,15 @@ local AutoPlayMacro =
 BindSave(AutoPlayMacro)
 
 AutoPlayMacro:OnChanged(function(value)
+	warn("[AUTOPLAY CHANGED]", value)
+
 	if IsBooting then
 		return
 	end
 	if value then
 		if not IsInGame or MacroState.CurrentFile == "None" then
 			warn("WHO TURNED OFF AUTOPLAY?")
-warn(debug.traceback())
+			warn(debug.traceback())
 			return
 		end
 		UpdateUIStatus("Playing (Loop) 🟢")
@@ -1235,7 +1225,9 @@ task.spawn(function()
 								targetUnit:GetPivot().Position.Z,
 							},
 
-							UpgradeTag = targetUnit:FindFirstChild("UpgradeTag") and math.max(0, targetUnit.UpgradeTag.Value - 1) or 0,
+							UpgradeTag = targetUnit:FindFirstChild("UpgradeTag")
+									and math.max(0, targetUnit.UpgradeTag.Value - 1)
+								or 0,
 
 							Cost = cost,
 						})
@@ -1275,13 +1267,13 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 			and typeof(args[2].cframe) == "CFrame"
 		then
 			table.insert(PendingSummons, {
-    Unit = tostring(args[2].Unit),
-    Rotation = args[2].Rotation,
-    CFrameData = CFrameToTable(args[2].cframe),
+				Unit = tostring(args[2].Unit),
+				Rotation = args[2].Rotation,
+				CFrameData = CFrameToTable(args[2].cframe),
 
-    BeforeCount = GetUnitCount(),
-    CreatedAt = tick()
-})
+				BeforeCount = GetUnitCount(),
+				CreatedAt = tick(),
+			})
 		elseif
 			method == "InvokeServer"
 			and self == ServerRemote
@@ -1354,6 +1346,17 @@ SaveManager:SetFolder("AutoPlayHubPro/UltimateMacroV5")
 
 pcall(function()
 	SaveManager:Load("SilentAutoSaveConfig")
+	task.wait(1)
+
+	if MacroDropdown and MacroDropdown.Value then
+		MacroState.CurrentFile = MacroDropdown.Value
+		UpdateUIStatus(nil, MacroDropdown.Value)
+	end
+
+	warn("[BOOT]")
+	warn("Dropdown =", MacroDropdown.Value)
+	warn("CurrentFile =", MacroState.CurrentFile)
+	warn("AutoPlay =", AutoPlayMacro and AutoPlayMacro.Value)
 end)
 Window:SelectTab(1)
 
@@ -1381,7 +1384,7 @@ task.spawn(function()
 			PlayMacro(true)
 		else
 			warn("WHO TURNED OFF AUTOPLAY?")
-warn(debug.traceback())
+			warn(debug.traceback())
 		end
 	end
 end)
