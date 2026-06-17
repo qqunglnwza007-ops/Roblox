@@ -843,15 +843,6 @@ local function PlayMacro(loopPlayback)
 							warn("[Macro] Summon Failed:", tostring(data.Unit))
 						end
 					end
-					local cf = TableToCFrame(data.CFrameData or data.CFrame)
-					if cf then
-						pcall(function()
-							InputRemote:FireServer(
-								"Summon",
-								{ Rotation = data.Rotation or 0, cframe = cf, Unit = data.Unit }
-							)
-						end)
-					end
 				elseif actionType == "Upgrade" then
 					local unit = FindUnitForAction(data)
 
@@ -876,12 +867,6 @@ local function PlayMacro(loopPlayback)
 						if not success then
 							warn("[Macro] Upgrade Failed:", unit.Name)
 						end
-					end
-					local unit = FindUnitForAction(data)
-					if unit then
-						pcall(function()
-							ServerRemote:InvokeServer("Upgrade", unit)
-						end)
 					end
 				elseif actionType == "Sell" then
 					local unit = FindUnitForAction(data)
@@ -1238,19 +1223,7 @@ task.spawn(function()
 		if #ActionQueue > 0 then
 			for _, action in ipairs(ActionQueue) do
 				local currentCash = GetCurrentCash()
-				if action.Type == "Summon" then
-					local cost = GetUnitCostFromName(action.Data.Unit)
-					if currentCash >= cost then
-						action.Data.Cost = cost
-						RecordAction("Summon", action.Data)
-					else
-						Fluent:Notify({
-							Title = "Skipped",
-							Content = "เงินไม่พอวาง!",
-							Duration = 2,
-						})
-					end
-				elseif action.Type == "Upgrade" then
+				if action.Type == "Upgrade" then
 					local targetUnit, cost = action.Data.UnitInstance, GetUpgradeCostFromUI()
 					if currentCash >= cost and cost > 0 then
 						RecordAction("Upgrade", {
@@ -1262,7 +1235,7 @@ task.spawn(function()
 								targetUnit:GetPivot().Position.Z,
 							},
 
-							UpgradeTag = targetUnit:FindFirstChild("UpgradeTag") and targetUnit.UpgradeTag.Value or 0,
+							UpgradeTag = targetUnit:FindFirstChild("UpgradeTag") and math.max(0, targetUnit.UpgradeTag.Value - 1) or 0,
 
 							Cost = cost,
 						})
@@ -1301,17 +1274,14 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 			and type(args[2]) == "table"
 			and typeof(args[2].cframe) == "CFrame"
 		then
-			table.insert(
-				ActionQueue,
-				{
-					Type = "Summon",
-					Data = {
-						Unit = tostring(args[2].Unit),
-						Rotation = args[2].Rotation,
-						CFrameData = CFrameToTable(args[2].cframe),
-					},
-				}
-			)
+			table.insert(PendingSummons, {
+    Unit = tostring(args[2].Unit),
+    Rotation = args[2].Rotation,
+    CFrameData = CFrameToTable(args[2].cframe),
+
+    BeforeCount = GetUnitCount(),
+    CreatedAt = tick()
+})
 		elseif
 			method == "InvokeServer"
 			and self == ServerRemote
