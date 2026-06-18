@@ -1,5 +1,5 @@
 -- ============================================================================
--- 👑 ULTIMATE MACRO SYSTEM (V7.1) : MASTER EDITION
+-- 👑 ULTIMATE MACRO SYSTEM (V7.0) : MASTER EDITION
 -- Architecture: Safe Action Queue + Smart Playback + QoL Automation
 -- Updates: Auto-Execute, Smart Env Check, Mobile Icon, Real-Time Event Save
 -- ============================================================================
@@ -48,7 +48,6 @@ local RecordingStartTime = 0
 local ActionQueue = {}
 local IsBooting = true -- [บล็อกระบบ] คุมการทำงานตอนรันสคริปต์ครั้งแรก
 local IsInGame = false -- [ระบบแยก Lobby]
-local EnvCheckDone = false -- [ระบบซิงค์เวลา] ป้ายบอกว่าเช็คด่านเสร็จหรือยัง
 
 local Playback = { Running = false, Token = 0, PositionTolerance = 4 }
 local AutomationState = { LastClick = {}, LastUpgradeSweep = 0, LastSpeedCheck = 0 }
@@ -61,7 +60,7 @@ task.spawn(function()
 	local maxWaitTime, elapsed = 15, 0
 	while elapsed < maxWaitTime do
 		local hud = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("HUD")
-		if hud and hud:FindFirstChild("Wave").Visible then
+		if hud and hud:FindFirstChild("Wave") then
 			IsInGame = true
 			print(
 				"[System] บอสอยู่ในแมพต่อสู้! ปลดล็อกระบบ Macro..."
@@ -77,8 +76,6 @@ task.spawn(function()
 		)
 		MacroState.Status = "Lobby 🏕️"
 	end
-
-	EnvCheckDone = true
 end)
 
 -- 🛠️ ฟังก์ชัน Helper สำหรับ Real-Time Save
@@ -477,16 +474,22 @@ Tabs.Macro:AddButton({
 	end,
 })
 
-local ImportCodeInput = Tabs.Macro:AddInput("ImportCodeInput", {
-	Title = "📥 Paste Macro Code",
-	Placeholder = "วางโค้ด TDMACRO_ ที่นี่...",
-	Finished = false,
-})
-local ImportNameInput = Tabs.Macro:AddInput("ImportNameInput", {
-	Title = "✏️ New Macro Name",
-	Placeholder = "ตั้งชื่อไฟล์ใหม่...",
-	Finished = false,
-})
+local ImportCodeInput = Tabs.Macro:AddInput(
+	"ImportCodeInput",
+	{
+		Title = "📥 Paste Macro Code",
+		Placeholder = "วางโค้ด TDMACRO_ ที่นี่...",
+		Finished = false,
+	}
+)
+local ImportNameInput = Tabs.Macro:AddInput(
+	"ImportNameInput",
+	{
+		Title = "✏️ New Macro Name",
+		Placeholder = "ตั้งชื่อไฟล์ใหม่...",
+		Finished = false,
+	}
+)
 Tabs.Macro:AddButton({
 	Title = "💾 Import & Save Macro",
 	Callback = function()
@@ -525,12 +528,15 @@ Tabs.Macro:AddButton({
 })
 
 Tabs.Macro:AddSection("Controls")
-local PlaybackMode = Tabs.Macro:AddDropdown("PlaybackMode", {
-	Title = "⚙️ Playback Mode",
-	Values = { "Strict Time", "Money + Time", "Action Based" },
-	Multi = false,
-	Default = 2,
-})
+local PlaybackMode = Tabs.Macro:AddDropdown(
+	"PlaybackMode",
+	{
+		Title = "⚙️ Playback Mode",
+		Values = { "Strict Time", "Money + Time", "Action Based" },
+		Multi = false,
+		Default = 2,
+	}
+)
 BindSave(PlaybackMode)
 local AutoUpgradeAll = Tabs.Macro:AddToggle("AutoUpgradeAll", { Title = "⬆️ Auto Upgrade All", Default = false })
 BindSave(AutoUpgradeAll)
@@ -545,12 +551,15 @@ BindSave(SpeedMode)
 local EnableAutoGameSpeed =
 	Tabs.Ingame:AddToggle("EnableAutoGameSpeed", { Title = "✅ Enable Auto GameSpeed", Default = false })
 BindSave(EnableAutoGameSpeed)
-local EndMatchMode = Tabs.Ingame:AddDropdown("EndMatchMode", {
-	Title = "🔚 End Match Mode",
-	Values = { "Auto Next", "Auto Replay", "Return to Lobby" },
-	Multi = false,
-	Default = 1,
-})
+local EndMatchMode = Tabs.Ingame:AddDropdown(
+	"EndMatchMode",
+	{
+		Title = "🔚 End Match Mode",
+		Values = { "Auto Next", "Auto Replay", "Return to Lobby" },
+		Multi = false,
+		Default = 1,
+	}
+)
 BindSave(EndMatchMode)
 
 Tabs.Ingame:AddSection("♻️ Fail-Safe Recovery")
@@ -573,14 +582,18 @@ local AutoVoteModeDropdown = Tabs.Ingame:AddDropdown(
 BindSave(AutoVoteModeDropdown)
 local EnableAutoVote = Tabs.Ingame:AddToggle("EnableAutoVote", { Title = "✅ Enable Auto Vote", Default = false })
 BindSave(EnableAutoVote)
+-- ---------------- [ TAB AUTO BUFF ] ----------------
 
--- ---------------- [ TAB 3: AUTO BUFF ] ----------------
-Tabs.AutoBuff:AddSection("🌟 Hoshino Support")
-local AutoBuffHoshino =
-	Tabs.AutoBuff:AddToggle("AutoBuffHoshino", { Title = "✨ Auto Buff (Hoshino)", Default = false })
-BindSave(AutoBuffHoshino)
+Tabs.AutoBuff:AddSection("🌟 Hoshino")
 
--- ---------------- [ TAB 4: SETTINGS ] ----------------
+local AutoHoshinoBuff = Tabs.AutoBuff:AddToggle("AutoHoshinoBuff", {
+	Title = "✨ Auto Shine Buff",
+	Description = "เปิด Auto ของ Hoshino อัตโนมัติ",
+	Default = false,
+})
+
+BindSave(AutoHoshinoBuff)
+-- ---------------- [ TAB 3: SETTINGS ] ----------------
 Tabs.Settings:AddSection("⚡ Performance")
 local AntiAFK = Tabs.Settings:AddToggle("AntiAFK", { Title = "🏃‍♂️ Anti-AFK", Default = true })
 BindSave(AntiAFK)
@@ -704,77 +717,13 @@ local function PlayMacro(loopPlayback)
 								{ Rotation = data.Rotation or 0, cframe = cf, Unit = data.Unit }
 							)
 						end)
-						local targetPos = cf.Position
-						local isPlaced = false
-						local timeout = tick() + 3 -- ให้เวลารอ 3 วินาที (เผื่อเน็ตปิง)
-
-						while tick() < timeout and Playback.Running do
-							task.wait(0.1)
-							for _, u in ipairs((Workspace:FindFirstChild("Unit") or Workspace):GetChildren()) do
-								if u.Name == data.Unit then
-									local uPos = GetUnitPosition(u)
-									if uPos and (uPos - targetPos).Magnitude <= Playback.PositionTolerance then
-										isPlaced = true
-										break
-									end
-								end
-							end
-							if isPlaced then
-								break
-							end
-						end
-
-						if not isPlaced then
-							print(
-								"[System] แจ้งเตือน: มาโครพยายามวาง "
-									.. data.Unit
-									.. " แต่เซิร์ฟเวอร์ไม่ตอบสนองหรือวางไม่ได้ (ข้ามไปทำแอคชั่นถัดไป)"
-							)
-						end
 					end
 				elseif actionType == "Upgrade" then
 					local unit = FindUnitForAction(data)
 					if unit then
-						local tag = unit:FindFirstChild("UpgradeTag")
-						local oldLevel = tag and tag.Value or 0
-						local success = false
-
-						-- 📌 ระบบ Retry ยิงซ้ำ 3 รอบถ้าอัปไม่ติด
-						for retry = 1, 3 do
-							if not Playback.Running then
-								break
-							end
-							pcall(function()
-								ServerRemote:InvokeServer("Upgrade", unit)
-							end)
-
-							-- รอให้เซิร์ฟอัปเดต UpgradeTag สูงสุด 1 วินาทีต่อการยิง 1 รอบ
-							for waitTime = 1, 10 do
-								task.wait(0.1)
-								local currentTag = unit:FindFirstChild("UpgradeTag")
-								if currentTag and currentTag.Value > oldLevel then
-									success = true
-									break
-								end
-							end
-
-							if success then
-								break
-							end
-							print(
-								"[System] อัพเกรดไม่ติด ลองใหม่ครั้งที่ "
-									.. retry
-							)
-							task.wait(0.2) -- พักหายใจก่อนยิงซ้ำ
-						end
-
-						if not success then
-							print(
-								"[System] ข้ามการอัพเกรด "
-									.. data.UnitName
-									.. " (ลอง 3 ครั้งแล้วไม่ผ่าน ข้ามไป Action ถัดไป)"
-							)
-						end
+						pcall(function()
+							ServerRemote:InvokeServer("Upgrade", unit)
+						end)
 					end
 				elseif actionType == "Sell" then
 					local unit = FindUnitForAction(data)
@@ -962,48 +911,71 @@ local function HandleAutoSpeed()
 		end)
 	end
 end
-
-local function RunAutoUpgradeAll()
-	if not AutoUpgradeAll.Value or Playback.Running == true then
+local function RunAutoHoshinoBuff()
+	if not AutoHoshinoBuff.Value then
 		return
 	end
-	local unitFolder = Workspace:FindFirstChild("Unit")
-	if unitFolder then
-		for _, unitInstance in ipairs(unitFolder:GetChildren()) do
-			if Playback.Running == true or not AutoUpgradeAll.Value then
-				break
-			end
-			pcall(function()
-				ServerRemote:InvokeServer("Upgrade", unitInstance)
-			end)
-			task.wait(0.05)
-		end
-	end
-end
 
-local function RunAutoBuffHoshino()
-	if not AutoBuffHoshino.Value then
-		return
-	end
 	local unitFolder = Workspace:FindFirstChild("Unit")
+
 	if not unitFolder then
 		return
 	end
 
-	for _, unit in ipairs(unitFolder:GetChildren()) do
-		if unit.Name == "Hoshino" then
-			local specialMove = unit:FindFirstChild("SpecialMove")
-			if specialMove then
-				-- 📌 ดึงค่าจาก Attribute แทนการใช้ FindFirstChild
-				local autoState = specialMove:GetAttribute("Auto")
+	local hoshino = unitFolder:FindFirstChild("Hoshino")
 
-				-- ถ้าไม่มี Attribute นี้ (nil) หรือค่าเป็น false แปลว่ามันปิดอยู่ ให้ยิงเปิดซะ!
-				if autoState == nil or autoState == false then
-					local args = { "AutoToggle", unit, true }
-					InputRemote:FireServer(unpack(args))
-					task.wait(0.2) -- ดีเลย์กันยิง Remote รัวจนโดนแบน
-				end
-			end
+	if not hoshino then
+		return
+	end
+
+	local owner = hoshino:FindFirstChild("Owner")
+
+	if not owner or owner.Value ~= LocalPlayer then
+		return
+	end
+
+	local specialMove = hoshino:FindFirstChild("SpecialMove")
+
+	if not specialMove then
+		return
+	end
+
+	if specialMove.Value ~= "Shine" then
+		return
+	end
+
+	local autoState = specialMove:GetAttribute("Auto")
+
+	if autoState == false then
+		pcall(function()
+			InputRemote:FireServer("AutoToggle", hoshino, true)
+		end)
+	end
+end
+local function RunAutoUpgradeAll()
+	if not AutoUpgradeAll.Value or Playback.Running then
+		return
+	end
+
+	local unitFolder = Workspace:FindFirstChild("Unit")
+
+	if not unitFolder then
+		return
+	end
+
+	for _, unitInstance in ipairs(unitFolder:GetChildren()) do
+		if Playback.Running or not AutoUpgradeAll.Value then
+			break
+		end
+
+		local owner = unitInstance:FindFirstChild("Owner")
+
+		if owner and owner.Value and owner.Value == LocalPlayer then
+			pcall(function()
+				ServerRemote:InvokeServer("Upgrade", unitInstance)
+			end)
+
+			task.wait(0.05)
 		end
 	end
 end
@@ -1014,7 +986,7 @@ task.spawn(function()
 			pcall(RunAutoVote)
 			pcall(RunAutoSkipWave)
 			pcall(RunEndMatchAutomation)
-			pcall(RunAutoBuffHoshino)
+			pcall(RunAutoHoshinoBuff)
 			local now = os.clock()
 			if now - AutomationState.LastSpeedCheck > 2 then
 				AutomationState.LastSpeedCheck = now
@@ -1054,86 +1026,88 @@ task.spawn(function()
 	while task.wait(0.05) do
 		if #ActionQueue > 0 then
 			for _, action in ipairs(ActionQueue) do
+				local currentCash = GetCurrentCash()
 				if action.Type == "Summon" then
-					task.spawn(function()
-						local targetName = action.Data.Unit
-						local initialCount = action.Data.InitialUnitCount
-						local actuallyPlaced = false
+					local beforeUnits = {}
 
-						-- 📌 [วิธี A] รอเช็คว่าจำนวนตัวละครในโฟลเดอร์งอกเพิ่มขึ้นไหม (สูงสุด 2 วินาที)
-						for i = 1, 20 do
-							task.wait(0.1)
-							local unitFolder = Workspace:FindFirstChild("Unit") or Workspace
-							local currentCount = #unitFolder:GetChildren()
+					local unitFolder = Workspace:FindFirstChild("Unit")
 
-							-- ถ้าจำนวนเพิ่มขึ้น แปลว่าวางลงไปแล้วแน่นอนชัวร์ 100%!
-							if currentCount > initialCount then
-								actuallyPlaced = true
-								break
-							end
+					if unitFolder then
+						for _, unit in ipairs(unitFolder:GetChildren()) do
+							beforeUnits[unit] = true
 						end
+					end
 
-						if actuallyPlaced then
-							local cost = GetUnitCostFromName(targetName)
-							action.Data.Cost = cost
-							RecordAction("Summon", action.Data)
-						else
-							Fluent:Notify({
-								Title = "Macro Skipped",
-								Content = "วาง "
-									.. targetName
-									.. " วืด! (ไม่บันทึกลงคิว)",
-								Duration = 2,
-							})
+					local summonData = table.clone(action.Data)
+
+					task.spawn(function()
+						local startTime = tick()
+
+						while tick() - startTime < 3 do
+							local folder = Workspace:FindFirstChild("Unit")
+
+							if folder then
+								for _, unit in ipairs(folder:GetChildren()) do
+									if not beforeUnits[unit] and unit.Name == summonData.Unit then
+										RecordAction("Summon", summonData)
+
+										return
+									end
+								end
+							end
+
+							task.wait(0.1)
 						end
 					end)
 				elseif action.Type == "Upgrade" then
-					task.spawn(function()
-						local targetUnit = action.Data.UnitInstance
-						local oldLevel = action.Data.OldLevel
-						local actuallyUpgraded = false
+					local targetUnit = action.Data.UnitInstance
 
-						-- 📌 รอเช็คผลลัพธ์จากเซิร์ฟเวอร์สูงสุด 1.5 วิ ว่า UpgradeTag.Value เพิ่มขึ้นไหม
-						for i = 1, 15 do
-							task.wait(0.1)
-							local tag = targetUnit:FindFirstChild("UpgradeTag")
-							if tag and tag.Value > oldLevel then
-								actuallyUpgraded = true
-								break
-							end
-						end
+					if targetUnit and targetUnit.Parent then
+						local upgradeTag = targetUnit:FindFirstChild("UpgradeTag")
 
-						if actuallyUpgraded then
-							local cost = GetUpgradeCostFromUI() -- ยังแอบเก็บ cost ไว้ประดับ UI ให้ดูสวยๆ ได้
-							RecordAction("Upgrade", {
-								UnitName = targetUnit.Name,
-								Position = {
-									targetUnit:GetPivot().Position.X,
-									targetUnit:GetPivot().Position.Y,
-									targetUnit:GetPivot().Position.Z,
-								},
-								Cost = cost,
-							})
-						else
-							Fluent:Notify({
-								Title = "Macro Skipped",
-								Content = "อัพเกรด "
-									.. targetUnit.Name
-									.. " ไม่ติด! (เงินไม่พอ/ตัน/แลค)",
-								Duration = 2,
-							})
+						if upgradeTag then
+							local oldLevel = upgradeTag.Value
+
+							task.spawn(function()
+								local startTime = tick()
+
+								while tick() - startTime < 2 do
+									if not targetUnit.Parent then
+										return
+									end
+
+									if upgradeTag.Value > oldLevel then
+										RecordAction("Upgrade", {
+											UnitName = targetUnit.Name,
+											Position = {
+												targetUnit:GetPivot().Position.X,
+												targetUnit:GetPivot().Position.Y,
+												targetUnit:GetPivot().Position.Z,
+											},
+											Cost = 0,
+										})
+
+										return
+									end
+
+									task.wait(0.1)
+								end
+							end)
 						end
-					end)
+					end
 				elseif action.Type == "Sell" then
-					RecordAction("Sell", {
-						UnitName = action.Data.UnitInstance.Name,
-						Position = {
-							action.Data.UnitInstance:GetPivot().Position.X,
-							action.Data.UnitInstance:GetPivot().Position.Y,
-							action.Data.UnitInstance:GetPivot().Position.Z,
-						},
-						Cost = 0,
-					})
+					RecordAction(
+						"Sell",
+						{
+							UnitName = action.Data.UnitInstance.Name,
+							Position = {
+								action.Data.UnitInstance:GetPivot().Position.X,
+								action.Data.UnitInstance:GetPivot().Position.Y,
+								action.Data.UnitInstance:GetPivot().Position.Z,
+							},
+							Cost = 0,
+						}
+					)
 				end
 			end
 			ActionQueue = {}
@@ -1152,27 +1126,24 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 			and type(args[2]) == "table"
 			and typeof(args[2].cframe) == "CFrame"
 		then
-			local unitFolder = Workspace:FindFirstChild("Unit") or Workspace
-			local initialCount = #unitFolder:GetChildren()
-			table.insert(ActionQueue, {
-				Type = "Summon",
-				Data = {
-					Unit = tostring(args[2].Unit),
-					Rotation = args[2].Rotation,
-					CFrameData = CFrameToTable(args[2].cframe),
-					InitialUnitCount = initialCount,
-				},
-			})
+			table.insert(
+				ActionQueue,
+				{
+					Type = "Summon",
+					Data = {
+						Unit = tostring(args[2].Unit),
+						Rotation = args[2].Rotation,
+						CFrameData = CFrameToTable(args[2].cframe),
+					},
+				}
+			)
 		elseif
 			method == "InvokeServer"
 			and self == ServerRemote
 			and (args[1] == "Upgrade" or args[1] == "Sell")
 			and typeof(args[2]) == "Instance"
 		then
-			local unit = args[2]
-			local tag = unit:FindFirstChild("UpgradeTag")
-			local oldLevel = (args[1] == "Upgrade" and tag) and tag.Value or 0
-			table.insert(ActionQueue, { Type = args[1], Data = { UnitInstance = unit, OldLevel = oldLevel } })
+			table.insert(ActionQueue, { Type = args[1], Data = { UnitInstance = args[2] } })
 		end
 	end
 	return oldNamecall(self, ...)
@@ -1219,17 +1190,19 @@ pcall(function()
 end)
 Window:SelectTab(1)
 
--- Smart Trigger ปลดล็อกระบบ Boot (รอให้ทุกอย่างโหลดเสร็จ 100%)
+-- Smart Trigger ปลดล็อกระบบ Boot
 task.spawn(function()
-	-- รอจนกว่าระบบกางโดเมนเช็คด่าน (Section 2) จะทำงานเสร็จ
-	while not EnvCheckDone do
-		task.wait(0.5)
+	local timeout, elapsed, checkInterval = 10, 0, 0.5
+	while elapsed < timeout do
+		if MacroState.CurrentFile ~= "None" and MacroState.CurrentFile ~= "" then
+			break
+		end
+		task.wait(checkInterval)
+		elapsed = elapsed + checkInterval
 	end
 
-	-- ตอนนี้ชัวร์แล้วว่าตัวแปร IsInGame มีค่าที่ถูกต้องจริงๆ ค่อยปลดล็อก
-	IsBooting = false
+	IsBooting = false -- ปลดล็อกระบบเซฟและ UI
 
-	-- เช็คว่าปุ่ม Auto Play ถูกเปิดค้างไว้จากเซฟไหม
 	if AutoPlayMacro and AutoPlayMacro.Value == true then
 		if MacroState.CurrentFile ~= "None" and IsInGame then
 			Fluent:Notify({
@@ -1240,7 +1213,6 @@ task.spawn(function()
 			UpdateUIStatus("Playing (Loop) 🟢")
 			PlayMacro(true)
 		else
-			-- ถ้าอยู่ Lobby จริงๆ หรือไฟล์พัง ค่อยสับปิดอย่างสมเหตุสมผล
 			AutoPlayMacro:SetValue(false)
 		end
 	end
