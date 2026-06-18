@@ -1,5 +1,5 @@
 -- ============================================================================
--- 👑 ULTIMATE MACRO SYSTEM (V7.0) : MASTER EDITION
+-- 👑 ULTIMATE MACRO SYSTEM (V7.1) : MASTER EDITION
 -- Architecture: Safe Action Queue + Smart Playback + QoL Automation
 -- Updates: Auto-Execute, Smart Env Check, Mobile Icon, Real-Time Event Save
 -- ============================================================================
@@ -55,7 +55,7 @@ task.spawn(function()
     local maxWaitTime, elapsed = 15, 0
     while elapsed < maxWaitTime do
         local hud = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("HUD")
-        if hud and hud:FindFirstChild("Wave") then
+        if hud and hud:FindFirstChild("Wave").Visible then
             IsInGame = true
             print("[System] บอสอยู่ในแมพต่อสู้! ปลดล็อกระบบ Macro...")
             break
@@ -561,8 +561,10 @@ task.spawn(function()
     if unitFolder then
         for _, v in ipairs(unitFolder:GetChildren()) do
             beforeUnits[v] = true
+                            print("Before :" beforeUnits)
         end
     end
+
 
     task.spawn(function()
 
@@ -581,6 +583,7 @@ task.spawn(function()
                     if not beforeUnits[unit] then
 
                         if unit.Name == action.Data.Unit then
+                          print(unit.Name)
 
                             action.Data.Cost =
                                 GetUnitCostFromName(action.Data.Unit)
