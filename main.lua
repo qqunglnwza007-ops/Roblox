@@ -1055,26 +1055,20 @@ task.spawn(function()
 		if #ActionQueue > 0 then
 			for _, action in ipairs(ActionQueue) do
 				if action.Type == "Summon" then
-					-- 📌 [ลอจิกใหม่] สร้างสเลดแยกเพื่อรอเช็คว่าวางลงแมพจริงๆ ภายใน 1.5 วินาที
 					task.spawn(function()
 						local targetName = action.Data.Unit
-						local targetPos =
-							Vector3.new(action.Data.CFrameData[1], action.Data.CFrameData[2], action.Data.CFrameData[3])
+						local initialCount = action.Data.InitialUnitCount
 						local actuallyPlaced = false
 
-						for i = 1, 15 do -- ลูปเช็คทุก 0.1 วิ (สูงสุด 1.5 วิ)
+						-- 📌 [วิธี A] รอเช็คว่าจำนวนตัวละครในโฟลเดอร์งอกเพิ่มขึ้นไหม (สูงสุด 2 วินาที)
+						for i = 1, 20 do
 							task.wait(0.1)
-							for _, u in ipairs((Workspace:FindFirstChild("Unit") or Workspace):GetChildren()) do
-								if u.Name == targetName then
-									local uPos = GetUnitPosition(u)
-									-- ถ้าระยะห่างของตัวละครที่เกิดใหม่ ตรงกับพิกัดที่เมาส์เรากด แปลว่าวางติด!
-									if uPos and (uPos - targetPos).Magnitude <= Playback.PositionTolerance then
-										actuallyPlaced = true
-										break
-									end
-								end
-							end
-							if actuallyPlaced then
+							local unitFolder = Workspace:FindFirstChild("Unit") or Workspace
+							local currentCount = #unitFolder:GetChildren()
+
+							-- ถ้าจำนวนเพิ่มขึ้น แปลว่าวางลงไปแล้วแน่นอนชัวร์ 100%!
+							if currentCount > initialCount then
+								actuallyPlaced = true
 								break
 							end
 						end
@@ -1158,12 +1152,15 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 			and type(args[2]) == "table"
 			and typeof(args[2].cframe) == "CFrame"
 		then
+			local unitFolder = Workspace:FindFirstChild("Unit") or Workspace
+			local initialCount = #unitFolder:GetChildren()
 			table.insert(ActionQueue, {
 				Type = "Summon",
 				Data = {
 					Unit = tostring(args[2].Unit),
 					Rotation = args[2].Rotation,
 					CFrameData = CFrameToTable(args[2].cframe),
+					InitialUnitCount = initialCount,
 				},
 			})
 		elseif
